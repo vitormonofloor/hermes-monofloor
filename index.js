@@ -229,36 +229,13 @@ function renderHTML(analise, dados, diff) {
   const tiposOrdenados = Object.entries(I.tiposOcs || {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxTipo = Math.max(...tiposOrdenados.map(t => t[1]), 1);
 
-  // Regional data with project lists for drill-down
+  // Regional data
   const regiaoData = Object.entries(I.porRegiao || {})
     .sort((a, b) => b[1].obras - a[1].obras)
-    .map(([r, d]) => ({
-      nome: r,
-      obras: d.obras,
-      msgs: d.msgs,
-      ocs: d.ocs,
-      avg: d.obras ? Math.round(d.msgs / d.obras) : 0,
-    }));
-  const maxRegiaoObras = Math.max(...regiaoData.map(r => r.obras), 1);
+    .map(([r, d]) => ({ nome: r, obras: d.obras, msgs: d.msgs, ocs: d.ocs }));
 
-  // Consultant data
-  const consultorData = Object.entries(I.porConsultor || {})
-    .filter(([c]) => c !== 'SEM' && c !== '[]')
-    .sort((a, b) => b[1].obras - a[1].obras)
-    .map(([c, d]) => ({
-      nome: c.split(' ').slice(0, 2).join(' '),
-      nomeCompleto: c,
-      obras: d.obras,
-      msgs: d.msgs,
-      ocs: d.ocs,
-      ocsObra: d.obras ? (d.ocs / d.obras).toFixed(1) : '0',
-      pctAtraso: d.obras ? ((d.atraso / d.obras) * 100).toFixed(0) : '0',
-    }));
-  const maxConsObras = Math.max(...consultorData.map(c => c.obras), 1);
-
-  // Project list by region and consultant for JS drill-down
+  // Build projects by region
   const projetosPorRegiao = {};
-  const projetosPorConsultor = {};
   (dados.projetos || []).forEach(p => {
     const cidade = (p.cidade || '').toLowerCase();
     let regiao = 'OUTROS';
@@ -266,89 +243,89 @@ function renderHTML(analise, dados, diff) {
     else if (cidade.includes('rio')) regiao = 'RJ';
     else if (cidade.includes('curitiba')) regiao = 'CWB';
     if (!projetosPorRegiao[regiao]) projetosPorRegiao[regiao] = [];
-    projetosPorRegiao[regiao].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase, status: p.status, consultor: p.consultor });
-
-    const cons = (p.consultor || 'SEM').split(' ').slice(0, 2).join(' ');
-    if (!projetosPorConsultor[cons]) projetosPorConsultor[cons] = [];
-    projetosPorConsultor[cons].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase, status: p.status });
+    projetosPorRegiao[regiao].push({
+      nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs,
+      fase: p.fase, status: p.status, consultor: p.consultor,
+      ocorrencias: (p.ocsDetalhes || []).slice(0, 10).map(o => ({ tipo: o.tipo, sev: o.severidade, titulo: o.titulo }))
+    });
   });
 
-  // Serialize for frontend JS (prevent </script> breaking HTML)
-  const drilldownData = JSON.stringify({ porRegiao: projetosPorRegiao, porConsultor: projetosPorConsultor })
-    .replace(/<\//g, '<\\/');
+  // Build phase pipeline per region (for chart nodes + tooltip)
+  const regiaoPipelines = {};
+  Object.entries(projetosPorRegiao).forEach(([regiao, projetos]) => {
+    const faseMap = {};
+    projetos.forEach(p => {
+      const f = (p.fase || 'sem fase').toLowerCase();
+      if (!faseMap[f]) faseMap[f] = { count: 0, ocs: { total: 0, critica: 0, alta: 0, media: 0, baixa: 0 }, tipos: {}, projetos: [] };
+      faseMap[f].count++;
+      faseMap[f].ocs.total += p.ocs;
+      faseMap[f].projetos.push(p);
+      (p.ocorrencias || []).forEach(o => {
+        if (faseMap[f].ocs[o.sev] !== undefined) faseMap[f].ocs[o.sev]++;
+        const t = (o.tipo || '?').replace(/_/g, ' ');
+        faseMap[f].tipos[t] = (faseMap[f].tipos[t] || 0) + 1;
+      });
+    });
+    const classify = (fase) => {
+      if (fase.includes('execu')) return 'exec';
+      if (fase.includes('agend')) return 'agend';
+      if (fase.includes('reparo') || fase.includes('pausada') || fase.includes('marcas')) return 'reparo';
+      if (fase.includes('finaliz') || fase.includes('conclui') || fase.includes('cliente finalizado')) return 'final';
+      return 'other';
+    };
+    regiaoPipelines[regiao] = Object.entries(faseMap)
+      .map(([fase, d]) => ({ fase, count: d.count, type: classify(fase), ocs: d.ocs, tipos: d.tipos, projetos: d.projetos }))
+      .sort((a, b) => b.count - a.count);
+  });
 
-  // Insights cards
-  const insightsHTML = (analise.insights || []).map(i => `
-    <div class="insight-card">
-      <div class="insight-title">${i.titulo}</div>
-      <div class="insight-text">${i.texto}</div>
-    </div>
-  `).join('');
+  const drilldownData = JSON.stringify({ pipelines: regiaoPipelines }).replace(/<\\//g, '<\\\\/');
 
-  // Actions
-  const acoesHTML = (analise.acoes || []).map(a => `
-    <div class="acao-card prio-${a.prioridade || 'media'}">
-      <div class="acao-prio">${(a.prioridade || 'media').toUpperCase()}</div>
-      <div class="acao-texto">${a.acao}</div>
-      <div class="acao-ctx">${a.contexto}</div>
-    </div>
-  `).join('');
+  // Render SVG pipeline chart (server-side)
+  function renderPipelineSVG(fases, idx) {
+    const maxCount = Math.max(...fases.map(f => f.count), 1);
+    const W = 900, H = 180, padL = 35, padR = 25, padT = 25, padB = 55;
+    const chartW = W - padL - padR, chartH = H - padT - padB;
+    const stepX = fases.length > 1 ? chartW / (fases.length - 1) : chartW / 2;
+    const points = fases.map((f, i) => ({
+      x: padL + (fases.length > 1 ? i * stepX : chartW / 2),
+      y: padT + chartH - (f.count / maxCount) * chartH, ...f
+    }));
+    let linePath = 'M ' + points[0].x + ' ' + points[0].y;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[Math.max(0, i-1)], p1 = points[i], p2 = points[i+1], p3 = points[Math.min(points.length-1, i+2)];
+      const t = 0.35;
+      linePath += ' C '+(p1.x+(p2.x-p0.x)*t)+' '+(p1.y+(p2.y-p0.y)*t)+', '+(p2.x-(p3.x-p1.x)*t)+' '+(p2.y-(p3.y-p1.y)*t)+', '+p2.x+' '+p2.y;
+    }
+    const areaPath = linePath+' L '+points[points.length-1].x+' '+(padT+chartH)+' L '+points[0].x+' '+(padT+chartH)+' Z';
+    let grid = '';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT+(chartH/4)*i;
+      grid += '<line class="grid-line" x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'"/>';
+      grid += '<text class="grid-label" x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end">'+Math.round(maxCount-(maxCount/4)*i)+'</text>';
+    }
+    const pts = points.map(p => {
+      const lbl = p.fase.length > 14 ? p.fase.substring(0,12)+'\u2026' : p.fase;
+      return '<g class="data-point point-'+p.type+'" data-fase="'+p.fase.replace(/"/g,'&quot;')+'">'+
+        '<circle class="bubble-glow" cx="'+p.x+'" cy="'+p.y+'" r="26"/>'+
+        '<circle class="bubble-ring" cx="'+p.x+'" cy="'+p.y+'" r="24"/>'+
+        '<circle class="bubble-bg" cx="'+p.x+'" cy="'+p.y+'" r="20"/>'+
+        '<text class="bubble-value" x="'+p.x+'" y="'+p.y+'">'+p.count+'</text></g>'+
+        '<text class="x-label" x="'+p.x+'" y="'+(H-8)+'" data-fase="'+p.fase.replace(/"/g,'&quot;')+'">'+lbl+'</text>';
+    }).join('');
+    return '<svg viewBox="0 0 '+W+' '+H+'">'+
+      '<defs><linearGradient id="areaGrad-'+idx+'" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#c4a77d" stop-opacity="0.3"/><stop offset="100%" stop-color="#c4a77d" stop-opacity="0.02"/></linearGradient></defs>'+
+      grid+'<path class="chart-area" d="'+areaPath+'" style="fill:url(#areaGrad-'+idx+')"/>'+
+      '<path class="chart-line" d="'+linePath+'"/>'+pts+'</svg>';
+  }
 
-  // Types bars
-  const tiposBars = tiposOrdenados.map(([t, c]) => {
-    const pct = (c / maxTipo * 100).toFixed(0);
-    return `
-      <div class="tipo-row">
-        <div class="tipo-label">${t.replace(/_/g, ' ')}</div>
-        <div class="tipo-bar-wrap"><div class="tipo-bar" style="width:${pct}%"></div></div>
-        <div class="tipo-num">${c}</div>
-      </div>
-    `;
-  }).join('');
-
-  // Interactive region bars
-  const regionBars = regiaoData.map(r => {
-    const pct = (r.obras / maxRegiaoObras * 100).toFixed(0);
-    return `
-      <div class="ibar-item" data-drill="regiao" data-key="${r.nome}">
-        <div class="ibar-head">
-          <div class="ibar-label">${r.nome}</div>
-          <div class="ibar-stats">
-            <span class="ibar-main">${r.obras}</span>
-            <span class="ibar-sub">obras</span>
-            <span class="ibar-sep">·</span>
-            <span class="ibar-detail">${r.msgs} msgs</span>
-            <span class="ibar-sep">·</span>
-            <span class="ibar-detail">${r.ocs} ocs</span>
-          </div>
-        </div>
-        <div class="ibar-bar-wrap"><div class="ibar-bar" style="width:${pct}%"></div></div>
-        <div class="ibar-drilldown" id="drill-regiao-${r.nome}"></div>
-      </div>
-    `;
-  }).join('');
-
-  // Interactive consultant bars
-  const consultorBars = consultorData.map(c => {
-    const pct = (c.obras / maxConsObras * 100).toFixed(0);
-    const atrasoColor = parseFloat(c.pctAtraso) > 30 ? '#ef4444' : parseFloat(c.pctAtraso) > 15 ? '#f59e0b' : '#888';
-    return `
-      <div class="ibar-item" data-drill="consultor" data-key="${c.nome}">
-        <div class="ibar-head">
-          <div class="ibar-label">${c.nome}</div>
-          <div class="ibar-stats">
-            <span class="ibar-main">${c.obras}</span>
-            <span class="ibar-sub">obras</span>
-            <span class="ibar-sep">·</span>
-            <span class="ibar-detail">${c.ocs} ocs (${c.ocsObra}/obra)</span>
-            <span class="ibar-sep">·</span>
-            <span class="ibar-detail" style="color:${atrasoColor}">${c.pctAtraso}% atraso</span>
-          </div>
-        </div>
-        <div class="ibar-bar-wrap"><div class="ibar-bar" style="width:${pct}%"></div></div>
-        <div class="ibar-drilldown" id="drill-consultor-${c.nome.replace(/\s/g, '_')}"></div>
-      </div>
-    `;
+  const regionCards = regiaoData.map((r, idx) => {
+    const fases = regiaoPipelines[r.nome] || [];
+    if (!fases.length) return '';
+    return '<div class="region-card" data-region="'+r.nome+'">'+
+      '<div class="region-header"><div class="region-name">'+r.nome+'</div>'+
+      '<div class="region-stats"><span><span class="val">'+r.obras+'</span>obras</span><span><span class="val">'+r.msgs.toLocaleString('pt-BR')+'</span>msgs</span><span><span class="val">'+r.ocs+'</span>ocs</span></div></div>'+
+      '<div class="chart-container">'+renderPipelineSVG(fases, idx)+'</div>'+
+      '<div class="drill-list" id="drill-'+r.nome+'"></div></div>';
   }).join('');
 
   // Diff cards
@@ -490,54 +467,80 @@ svg.sparkline{width:100%;height:120px;display:block}
   .chart-stat strong{font-size:18px}
   .ibar-stats{flex-wrap:wrap;gap:4px}
 }
-/* Interactive bar charts */
-.icharts-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:32px}
-@media (max-width:900px){.icharts-grid{grid-template-columns:1fr}}
-.ichart-section{background:linear-gradient(180deg, #141414 0%, #0e0e0e 100%);border:1px solid #1f1f1f;border-radius:12px;padding:24px}
-.ichart-title{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:20px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
-.ichart-title .total{color:#c4a77d;font-size:14px;font-weight:600;letter-spacing:0;text-transform:none}
-.ibar-item{margin-bottom:16px;cursor:pointer;transition:background 0.2s;padding:8px 10px;margin:-8px -10px;border-radius:8px}
-.ibar-item:hover{background:#1a1a1a}
-.ibar-item:last-child{margin-bottom:0}
-.ibar-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:12px}
-.ibar-label{font-size:15px;font-weight:600;color:#e8e8e8;letter-spacing:0.5px}
-.ibar-stats{display:flex;align-items:baseline;gap:6px;flex-wrap:nowrap}
-.ibar-main{font-size:20px;font-weight:700;color:#c4a77d;font-variant-numeric:tabular-nums}
-.ibar-sub{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px}
-.ibar-sep{color:#333;font-size:10px}
-.ibar-detail{font-size:11px;color:#888}
-.ibar-bar-wrap{background:#1a1a1a;border-radius:6px;height:8px;overflow:hidden}
-.ibar-bar{height:100%;border-radius:6px;background:linear-gradient(90deg, #c4a77d 0%, #8a6f45 100%);transition:width 0.6s cubic-bezier(0.4, 0, 0.2, 1)}
-/* Drill-down list (hidden by default) */
-.ibar-drilldown{max-height:0;overflow:hidden;transition:max-height 0.4s ease-out, opacity 0.3s;opacity:0}
-.ibar-drilldown.open{max-height:800px;opacity:1;margin-top:12px}
-.drill-table{width:100%;border-collapse:collapse;font-size:11px}
-.drill-table th{text-align:left;color:#666;font-weight:500;padding:5px 8px;border-bottom:1px solid #222;text-transform:uppercase;letter-spacing:0.5px;font-size:9px}
-.drill-table td{padding:5px 8px;border-bottom:1px solid #151515;color:#ccc}
-.drill-table tr:hover{background:#1a1a1a}
-.drill-table .oc{color:#ef4444;font-weight:600}
-.drill-close{font-size:10px;color:#888;cursor:pointer;margin-top:6px;text-align:right;padding:4px 0;text-transform:uppercase;letter-spacing:1px}
-.drill-close:hover{color:#c4a77d}
-/* Drill-down mini-panel by phase */
-.drill-panel{padding:4px 0}
-.drill-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.drill-pill{font-size:10px;padding:4px 10px;border-radius:20px;background:#1a1a1a;border:1px solid #222;color:#ccc;cursor:pointer;transition:all 0.2s;white-space:nowrap}
-.drill-pill:hover{border-color:#c4a77d;color:#c4a77d}
-.drill-pill.active{background:#c4a77d20;border-color:#c4a77d;color:#c4a77d}
-.drill-pill .pill-count{font-weight:700;color:#c4a77d;margin-left:4px}
-.drill-phase-group{margin-bottom:12px;border-left:2px solid #222;padding-left:12px}
-.drill-phase-group.finalizado{border-left-color:#22c55e}
-.drill-phase-group.em_execucao{border-left-color:#3b82f6}
-.drill-phase-group.reparo,.drill-phase-group.marcas_rolo_cera{border-left-color:#ef4444}
-.drill-phase-group.agendamento,.drill-phase-group.agend{border-left-color:#f59e0b}
-.drill-phase-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:pointer}
-.drill-phase-label{font-size:12px;font-weight:600;color:#e0e0e0;text-transform:capitalize}
-.drill-phase-count{font-size:11px;color:#c4a77d;font-weight:600}
-.drill-phase-list{font-size:11px;color:#bbb;line-height:1.8}
-.drill-obra{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #151515;gap:8px}
-.drill-obra:last-child{border-bottom:none}
-.drill-obra-nome{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.drill-obra-meta{display:flex;gap:10px;flex-shrink:0;color:#888;font-size:10px}
+/* Pipeline chart */
+.region-card{background:linear-gradient(180deg, #141414 0%, #0e0e0e 100%);border:1px solid #1f1f1f;border-radius:14px;padding:28px;margin-bottom:24px}
+.region-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.region-name{font-size:22px;font-weight:600;color:#e8e8e8;letter-spacing:1px}
+.region-stats{display:flex;gap:16px;font-size:12px;color:#888}
+.region-stats .val{color:#c4a77d;font-weight:600;font-size:14px;margin-right:3px}
+.chart-container{position:relative;width:100%;height:220px}
+.chart-container svg{width:100%;height:100%;overflow:visible}
+.chart-area{opacity:0.15}
+.grid-line{stroke:#1a1a1a;stroke-width:1}
+.grid-label{fill:#555;font-size:10px;font-family:Inter,sans-serif}
+.x-label{fill:#888;font-size:10px;font-family:Inter,sans-serif;text-anchor:middle;cursor:pointer;transition:fill 0.2s}
+.x-label:hover{fill:#c4a77d}
+.x-label.active{fill:#c4a77d;font-weight:600}
+.data-point{cursor:pointer;transition:transform 0.2s}
+.data-point:hover{transform:scale(1.15)}
+.data-point.active .bubble-ring{stroke-width:2;opacity:1}
+.data-point.active .bubble-glow{opacity:0.4}
+.bubble-bg{fill:#141414;stroke:#333;stroke-width:1.5}
+.bubble-ring{fill:none;stroke:#c4a77d;stroke-width:0;opacity:0;transition:all 0.3s}
+.bubble-glow{fill:#c4a77d;opacity:0;transition:opacity 0.3s;filter:blur(8px)}
+.bubble-value{fill:#c4a77d;font-size:13px;font-weight:700;font-family:Inter,sans-serif;text-anchor:middle;dominant-baseline:central}
+.point-exec .bubble-bg{stroke:#3b82f6}.point-exec .bubble-value{fill:#3b82f6}.point-exec .bubble-ring{stroke:#3b82f6}.point-exec .bubble-glow{fill:#3b82f6}
+.point-agend .bubble-bg{stroke:#f59e0b}.point-agend .bubble-value{fill:#f59e0b}.point-agend .bubble-ring{stroke:#f59e0b}.point-agend .bubble-glow{fill:#f59e0b}
+.point-reparo .bubble-bg{stroke:#ef4444}.point-reparo .bubble-value{fill:#ef4444}.point-reparo .bubble-ring{stroke:#ef4444}.point-reparo .bubble-glow{fill:#ef4444}
+.point-final .bubble-bg{stroke:#22c55e}.point-final .bubble-value{fill:#22c55e}.point-final .bubble-ring{stroke:#22c55e}.point-final .bubble-glow{fill:#22c55e}
+.point-other .bubble-bg{stroke:#888}.point-other .bubble-value{fill:#888}.point-other .bubble-ring{stroke:#888}.point-other .bubble-glow{fill:#888}
+/* Hermes tooltip */
+.hermes-tooltip{position:fixed;z-index:1000;pointer-events:none;opacity:0;transform:translateY(8px);transition:opacity 0.25s,transform 0.25s;max-width:320px}
+.hermes-tooltip.visible{opacity:1;transform:translateY(0)}
+.tooltip-inner{background:#1a1510;border:1px solid #c4a77d40;border-radius:12px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.6),0 0 20px #c4a77d15;position:relative}
+.tooltip-wing{position:absolute;top:-8px;width:28px;height:28px;background-image:url('hermes-wing.png');background-size:contain;background-repeat:no-repeat;opacity:0.7;filter:drop-shadow(0 0 4px #c4a77d40)}
+.tooltip-wing-left{left:-14px;transform:scaleX(-1) rotate(-15deg);animation:tt-flutter 1.2s ease-in-out infinite}
+.tooltip-wing-right{right:-14px;transform:rotate(-15deg);animation:tt-flutter-r 1.2s ease-in-out infinite 0.1s}
+@keyframes tt-flutter{0%,100%{transform:scaleX(-1) rotate(-15deg)}50%{transform:scaleX(-1) rotate(-22deg)}}
+@keyframes tt-flutter-r{0%,100%{transform:rotate(-15deg)}50%{transform:rotate(-22deg)}}
+.tooltip-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #c4a77d20}
+.tooltip-fase{font-size:13px;font-weight:600;color:#c4a77d;text-transform:capitalize;flex:1}
+.tooltip-count{font-size:18px;font-weight:700;color:#fff}
+.tooltip-count-label{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-left:4px}
+.tooltip-sev-grid{display:flex;gap:6px;margin-bottom:10px}
+.tooltip-sev-item{flex:1;text-align:center;background:#0a0a0a;border-radius:6px;padding:6px 4px}
+.tooltip-sev-num{font-size:14px;font-weight:700;line-height:1}
+.tooltip-sev-num.critica{color:#ef4444}.tooltip-sev-num.alta{color:#f59e0b}.tooltip-sev-num.media{color:#3b82f6}.tooltip-sev-num.baixa{color:#22c55e}
+.tooltip-sev-label{font-size:8px;color:#888;text-transform:uppercase;letter-spacing:0.3px;margin-top:2px}
+.tooltip-tipos{margin-top:8px}
+.tooltip-tipo-row{display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid #0a0a0a}
+.tooltip-tipo-name{color:#ccc;text-transform:capitalize}
+.tooltip-tipo-count{color:#c4a77d;font-weight:600}
+.tooltip-hint{font-size:9px;color:#666;text-align:center;margin-top:8px;font-style:italic}
+/* Drill list */
+.drill-list{max-height:0;overflow:hidden;transition:max-height 0.4s ease-out,opacity 0.3s;opacity:0;margin-top:0}
+.drill-list.open{max-height:800px;opacity:1;margin-top:16px;overflow-y:auto}
+.drill-list-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#0a0a0a;border-radius:8px 8px 0 0;border:1px solid #222;border-bottom:none}
+.drill-list-title{font-size:13px;font-weight:600;color:#c4a77d;text-transform:capitalize}
+.drill-list-close{font-size:10px;color:#888;cursor:pointer;text-transform:uppercase;letter-spacing:1px;padding:4px 8px;border-radius:4px;transition:all 0.2s}
+.drill-list-close:hover{color:#c4a77d;background:#1a1a1a}
+.drill-list-body{background:#0a0a0a;border:1px solid #222;border-top:none;border-radius:0 0 8px 8px;padding:4px 0}
+.drill-row{display:grid;grid-template-columns:1fr 80px 70px 60px;padding:8px 16px;font-size:12px;border-bottom:1px solid #151515;transition:background 0.15s;align-items:center}
+.drill-row:hover{background:#141414}
+.drill-row-name{color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drill-row-cons{color:#888;font-size:11px}
+.drill-row-msgs{color:#888;text-align:right;font-variant-numeric:tabular-nums}
+.drill-row-ocs.zero{color:#333}
+.drill-row-ocs.has-ocs{color:#ef4444;font-weight:600;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
+.drill-row-ocs.has-ocs:hover{color:#ff6b6b}
+.ocs-expand{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out,padding 0.3s;grid-column:1/-1;padding:0 16px;background:#080808;border-bottom:1px solid #1a1a1a}
+.ocs-expand.open{max-height:500px;padding:10px 16px 12px;overflow-y:auto}
+.ocs-list-head{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;justify-content:space-between}
+.ocs-item{display:grid;grid-template-columns:65px 100px 1fr;gap:8px;align-items:start;padding:5px 0;font-size:11px;border-bottom:1px solid #111}
+.ocs-item:last-child{border-bottom:none}
+.ocs-sev{padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;text-transform:uppercase;text-align:center}
+.ocs-sev.critica{background:#ef444420;color:#ef4444}.ocs-sev.alta{background:#f59e0b20;color:#f59e0b}.ocs-sev.media{background:#3b82f620;color:#3b82f6}.ocs-sev.baixa{background:#22c55e20;color:#22c55e}
+.ocs-tipo{color:#888;font-size:10px;text-transform:capitalize}
 .drill-obra-meta .oc{color:#ef4444;font-weight:600}
 </style>
 </head>
@@ -580,17 +583,8 @@ svg.sparkline{width:100%;height:120px;display:block}
       <div class="kpi-card"><div class="kpi-val">${meta.projetosAtivos}</div><div class="kpi-label">Projetos ativos</div></div>
     </div>
 
-    <!-- Gráficos interativos: Região e Consultor lado a lado -->
-    <div class="icharts-grid">
-      <div class="ichart-section">
-        <div class="ichart-title">Obras por região <span class="total">${meta.projetosAtivos} projetos</span></div>
-        ${regionBars}
-      </div>
-      <div class="ichart-section">
-        <div class="ichart-title">Carga por consultor <span class="total">${consultorData.length} consultores</span></div>
-        ${consultorBars}
-      </div>
-    </div>
+    <!-- Pipeline charts por região -->
+    ${regionCards}
 
     <div class="chart-wrap" style="margin-top:24px">
       <div class="chart-title">Volume diário de mensagens · últimos 30 dias</div>
@@ -643,107 +637,139 @@ ${diffHTML}
 </section>
 
 <div class="footer">
-  Hermes v1.2 · análise gerada em ${dataFmt} · <a href="indicadores.html">ver painel operacional →</a>
+  Hermes v1.4 · análise gerada em ${dataFmt} · <a href="indicadores.html">ver painel operacional →</a>
+</div>
+
+<!-- Hermes tooltip -->
+<div class="hermes-tooltip" id="hermes-tooltip">
+  <div class="tooltip-inner">
+    <div class="tooltip-wing tooltip-wing-left"></div>
+    <div class="tooltip-wing tooltip-wing-right"></div>
+    <div class="tooltip-header">
+      <div class="tooltip-fase" id="tt-fase"></div>
+      <div><span class="tooltip-count" id="tt-count"></span><span class="tooltip-count-label">obras</span></div>
+    </div>
+    <div class="tooltip-sev-grid" id="tt-sev"></div>
+    <div class="tooltip-tipos" id="tt-tipos"></div>
+    <div class="tooltip-hint">clique para ver detalhes</div>
+  </div>
 </div>
 
 <script>
-// Dados para drill-down
 const DRILL = ${drilldownData};
+const tooltip = document.getElementById('hermes-tooltip');
+let tooltipTimeout = null;
 
-// Fade-in progressivo
+// Fade-in
 const observer = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) entry.target.classList.add('visible');
-  });
+  entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
 }, { threshold: 0.15 });
 document.querySelectorAll('.slide').forEach(s => observer.observe(s));
 
-// Drill-down: clicar em barra de região/consultor abre lista de obras
-document.querySelectorAll('.ibar-item').forEach(item => {
-  item.addEventListener('click', () => {
-    const type = item.dataset.drill;
-    const key = item.dataset.key;
-    const drillDiv = item.querySelector('.ibar-drilldown');
+// Tooltip on hover
+function showTooltip(faseData, x, y) {
+  document.getElementById('tt-fase').textContent = faseData.fase;
+  document.getElementById('tt-count').textContent = faseData.count;
+  const ocs = faseData.ocs || { total:0, critica:0, alta:0, media:0, baixa:0 };
+  document.getElementById('tt-sev').innerHTML =
+    '<div class="tooltip-sev-item"><div class="tooltip-sev-num critica">'+ocs.critica+'</div><div class="tooltip-sev-label">crítica</div></div>'+
+    '<div class="tooltip-sev-item"><div class="tooltip-sev-num alta">'+ocs.alta+'</div><div class="tooltip-sev-label">alta</div></div>'+
+    '<div class="tooltip-sev-item"><div class="tooltip-sev-num media">'+ocs.media+'</div><div class="tooltip-sev-label">média</div></div>'+
+    '<div class="tooltip-sev-item"><div class="tooltip-sev-num baixa">'+ocs.baixa+'</div><div class="tooltip-sev-label">baixa</div></div>';
+  const tipos = faseData.tipos || {};
+  const tiposArr = Object.entries(tipos).sort((a,b) => b[1]-a[1]).slice(0,4);
+  const ttTipos = document.getElementById('tt-tipos');
+  ttTipos.innerHTML = tiposArr.length ? tiposArr.map(function(t) { return '<div class="tooltip-tipo-row"><span class="tooltip-tipo-name">'+t[0]+'</span><span class="tooltip-tipo-count">'+t[1]+'</span></div>'; }).join('') : '';
+  ttTipos.style.display = tiposArr.length ? 'block' : 'none';
+  tooltip.style.left = Math.max(10, x - 160) + 'px';
+  tooltip.style.top = (y - 10) + 'px';
+  tooltip.classList.add('visible');
+}
 
-    // Se já está aberto, fecha
-    if (drillDiv.classList.contains('open')) {
+document.querySelectorAll('.data-point').forEach(function(point) {
+  point.addEventListener('mouseenter', function(e) {
+    clearTimeout(tooltipTimeout);
+    var regionName = point.closest('.region-card').dataset.region;
+    var faseName = point.dataset.fase;
+    var pipeline = DRILL.pipelines[regionName] || [];
+    var faseData = pipeline.find(function(f) { return f.fase === faseName; });
+    if (!faseData) return;
+    var rect = point.getBoundingClientRect();
+    tooltipTimeout = setTimeout(function() { showTooltip(faseData, rect.left + rect.width/2, rect.top - 10); }, 300);
+  });
+  point.addEventListener('mouseleave', function() {
+    clearTimeout(tooltipTimeout);
+    tooltip.classList.remove('visible');
+  });
+});
+
+// Click drill-down
+document.querySelectorAll('.data-point, .x-label').forEach(function(el) {
+  el.addEventListener('click', function() {
+    tooltip.classList.remove('visible');
+    var card = el.closest('.region-card');
+    var regionName = card.dataset.region;
+    var faseName = el.dataset.fase;
+    var drillDiv = card.querySelector('.drill-list');
+    var clickedPoint = card.querySelector('.data-point[data-fase="'+faseName+'"]');
+    if (clickedPoint && clickedPoint.classList.contains('active')) {
+      clickedPoint.classList.remove('active');
+      card.querySelectorAll('.x-label').forEach(function(l) { l.classList.remove('active'); });
       drillDiv.classList.remove('open');
       return;
     }
-
-    // Fecha todos os outros do mesmo grupo
-    item.closest('.ichart-section').querySelectorAll('.ibar-drilldown.open').forEach(d => d.classList.remove('open'));
-
-    // Busca projetos
-    const source = type === 'regiao' ? DRILL.porRegiao : DRILL.porConsultor;
-    const projetos = source[key] || [];
-
+    card.querySelectorAll('.data-point').forEach(function(p) { p.classList.remove('active'); });
+    card.querySelectorAll('.x-label').forEach(function(l) { l.classList.remove('active'); });
+    if (clickedPoint) clickedPoint.classList.add('active');
+    card.querySelectorAll('.x-label[data-fase="'+faseName+'"]').forEach(function(l) { l.classList.add('active'); });
+    var pipeline = DRILL.pipelines[regionName] || [];
+    var faseData = pipeline.find(function(f) { return f.fase === faseName; });
+    var projetos = faseData ? faseData.projetos : [];
     if (!projetos.length) {
-      drillDiv.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 0">Nenhum projeto encontrado.</div>';
+      drillDiv.innerHTML = '<div class="drill-list-header"><div class="drill-list-title">'+faseName+'</div><div class="drill-list-close" data-action="close-drill">\u2715</div></div><div class="drill-list-body" style="padding:16px;color:#555;font-size:12px;text-align:center">Sem dados.</div>';
     } else {
-      // Agrupar por fase
-      const porFase = {};
-      projetos.forEach(p => {
-        const f = (p.fase || p.status || 'sem fase').toLowerCase().replace(/\s+/g, '_');
-        if (!porFase[f]) porFase[f] = [];
-        porFase[f].push(p);
-      });
-
-      // Ordenar fases: em_execucao primeiro, finalizado por último
-      const ordemFase = { em_execucao: 0, agendamento: 1, agend: 1, reparo: 2, marcas_rolo_cera: 2, finalizado: 8, concluido: 8, cancelado: 9 };
-      const fasesOrdenadas = Object.entries(porFase).sort((a, b) => {
-        const oa = ordemFase[a[0]] !== undefined ? ordemFase[a[0]] : 5;
-        const ob = ordemFase[b[0]] !== undefined ? ordemFase[b[0]] : 5;
-        return oa - ob || b[1].length - a[1].length;
-      });
-
-      // Pills resumo
-      const pills = fasesOrdenadas.map(([f, lista]) => {
-        const label = f.replace(/_/g, ' ');
-        return '<span class="drill-pill" data-fase="' + f + '">' + label + '<span class="pill-count">' + lista.length + '</span></span>';
+      var rows = projetos.sort(function(a,b){return b.ocs-a.ocs;}).map(function(p,pi) {
+        var uid = regionName+'-'+pi;
+        var hasOcs = p.ocs > 0 && p.ocorrencias && p.ocorrencias.length > 0;
+        var ocsHTML = '';
+        if (hasOcs) {
+          var items = p.ocorrencias.map(function(o) {
+            return '<div class="ocs-item"><span class="ocs-sev '+(o.sev||'media')+'">'+(o.sev||'?')+'</span><span class="ocs-tipo">'+(o.tipo||'').replace(/_/g,' ')+'</span><span class="ocs-titulo">'+(o.titulo||'\u2014')+'</span></div>';
+          }).join('');
+          ocsHTML = '<div class="ocs-expand" id="ocs-'+uid+'"><div class="ocs-list-head"><span>Ocorr\u00eancias</span><span>'+p.ocorrencias.length+' reg.</span></div>'+items+'</div>';
+        }
+        return '<div class="drill-row">'+
+          '<div class="drill-row-name">'+(p.nome||'').substring(0,30)+'</div>'+
+          '<div class="drill-row-cons">'+(p.consultor||'')+'</div>'+
+          '<div class="drill-row-msgs">'+(p.msgs||0)+' msgs</div>'+
+          '<div class="drill-row-ocs '+(hasOcs?'has-ocs':(p.ocs>0?'':'zero'))+'" '+(hasOcs?'data-toggle-ocs="ocs-'+uid+'"':'')+'>'+
+            (p.ocs>0?p.ocs+' ocs':'\u2014')+'</div></div>'+ocsHTML;
       }).join('');
-
-      // Grupos por fase
-      const grupos = fasesOrdenadas.map(([f, lista]) => {
-        const label = f.replace(/_/g, ' ');
-        const cssClass = f.split('_')[0];
-        const obras = lista.sort((a, b) => b.ocs - a.ocs).map(p => {
-          return '<div class="drill-obra">' +
-            '<span class="drill-obra-nome">' + (p.nome || '').substring(0, 30) + '</span>' +
-            '<span class="drill-obra-meta">' +
-              (p.consultor ? '<span>' + (p.consultor || '').split(' ')[0] + '</span>' : '') +
-              '<span>' + (p.msgs || 0) + ' msgs</span>' +
-              (p.ocs > 0 ? '<span class="oc">' + p.ocs + ' ocs</span>' : '') +
-            '</span>' +
-          '</div>';
-        }).join('');
-
-        return '<div class="drill-phase-group ' + cssClass + '">' +
-          '<div class="drill-phase-head">' +
-            '<span class="drill-phase-label">' + label + '</span>' +
-            '<span class="drill-phase-count">' + lista.length + ' obra' + (lista.length > 1 ? 's' : '') + '</span>' +
-          '</div>' +
-          '<div class="drill-phase-list">' + obras + '</div>' +
-        '</div>';
-      }).join('');
-
-      drillDiv.innerHTML = '<div class="drill-panel">' +
-        '<div class="drill-summary">' + pills + '</div>' +
-        grupos +
-        '<div class="drill-close" data-action="close-drill">fechar ✕</div>' +
-      '</div>';
+      drillDiv.innerHTML = '<div class="drill-list-header"><div class="drill-list-title">'+faseName+' \u2014 '+projetos.length+' obra'+(projetos.length>1?'s':'')+'</div><div class="drill-list-close" data-action="close-drill">\u2715</div></div><div class="drill-list-body">'+rows+'</div>';
     }
-
     drillDiv.classList.add('open');
   });
 });
 
-// Event delegation para fechar drill-down
-document.addEventListener('click', (e) => {
-  const closeBtn = e.target.closest('[data-action="close-drill"]');
+document.addEventListener('click', function(e) {
+  var ocsToggle = e.target.closest('[data-toggle-ocs]');
+  if (ocsToggle) {
+    e.stopPropagation();
+    var targetId = ocsToggle.dataset.toggleOcs;
+    var ocsDiv = document.getElementById(targetId);
+    if (ocsDiv) {
+      ocsDiv.closest('.drill-list-body').querySelectorAll('.ocs-expand.open').forEach(function(d) { if (d.id !== targetId) d.classList.remove('open'); });
+      ocsDiv.classList.toggle('open');
+    }
+    return;
+  }
+  var closeBtn = e.target.closest('[data-action="close-drill"]');
   if (closeBtn) {
     e.stopPropagation();
-    closeBtn.parentElement.classList.remove('open');
+    var card = closeBtn.closest('.region-card');
+    card.querySelector('.drill-list').classList.remove('open');
+    card.querySelectorAll('.data-point.active').forEach(function(p) { p.classList.remove('active'); });
+    card.querySelectorAll('.x-label.active').forEach(function(l) { l.classList.remove('active'); });
   }
 });
 </script>
