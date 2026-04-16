@@ -266,11 +266,11 @@ function renderHTML(analise, dados, diff) {
     else if (cidade.includes('rio')) regiao = 'RJ';
     else if (cidade.includes('curitiba')) regiao = 'CWB';
     if (!projetosPorRegiao[regiao]) projetosPorRegiao[regiao] = [];
-    projetosPorRegiao[regiao].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase, consultor: p.consultor });
+    projetosPorRegiao[regiao].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase, status: p.status, consultor: p.consultor });
 
     const cons = (p.consultor || 'SEM').split(' ').slice(0, 2).join(' ');
     if (!projetosPorConsultor[cons]) projetosPorConsultor[cons] = [];
-    projetosPorConsultor[cons].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase });
+    projetosPorConsultor[cons].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase, status: p.status });
   });
 
   // Serialize for frontend JS (prevent </script> breaking HTML)
@@ -518,6 +518,27 @@ svg.sparkline{width:100%;height:120px;display:block}
 .drill-table .oc{color:#ef4444;font-weight:600}
 .drill-close{font-size:10px;color:#888;cursor:pointer;margin-top:6px;text-align:right;padding:4px 0;text-transform:uppercase;letter-spacing:1px}
 .drill-close:hover{color:#c4a77d}
+/* Drill-down mini-panel by phase */
+.drill-panel{padding:4px 0}
+.drill-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.drill-pill{font-size:10px;padding:4px 10px;border-radius:20px;background:#1a1a1a;border:1px solid #222;color:#ccc;cursor:pointer;transition:all 0.2s;white-space:nowrap}
+.drill-pill:hover{border-color:#c4a77d;color:#c4a77d}
+.drill-pill.active{background:#c4a77d20;border-color:#c4a77d;color:#c4a77d}
+.drill-pill .pill-count{font-weight:700;color:#c4a77d;margin-left:4px}
+.drill-phase-group{margin-bottom:12px;border-left:2px solid #222;padding-left:12px}
+.drill-phase-group.finalizado{border-left-color:#22c55e}
+.drill-phase-group.em_execucao{border-left-color:#3b82f6}
+.drill-phase-group.reparo,.drill-phase-group.marcas_rolo_cera{border-left-color:#ef4444}
+.drill-phase-group.agendamento,.drill-phase-group.agend{border-left-color:#f59e0b}
+.drill-phase-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:pointer}
+.drill-phase-label{font-size:12px;font-weight:600;color:#e0e0e0;text-transform:capitalize}
+.drill-phase-count{font-size:11px;color:#c4a77d;font-weight:600}
+.drill-phase-list{font-size:11px;color:#bbb;line-height:1.8}
+.drill-obra{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #151515;gap:8px}
+.drill-obra:last-child{border-bottom:none}
+.drill-obra-nome{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drill-obra-meta{display:flex;gap:10px;flex-shrink:0;color:#888;font-size:10px}
+.drill-obra-meta .oc{color:#ef4444;font-weight:600}
 </style>
 </head>
 <body>
@@ -660,14 +681,57 @@ document.querySelectorAll('.ibar-item').forEach(item => {
     if (!projetos.length) {
       drillDiv.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 0">Nenhum projeto encontrado.</div>';
     } else {
-      const rows = projetos
-        .sort((a, b) => b.msgs - a.msgs)
-        .map(p => {
-          const fase = (p.fase || '').substring(0, 18);
-          return '<tr><td>' + (p.nome || '').substring(0, 28) + '</td><td>' + (p.cidade || '').substring(0, 15) + '</td><td>' + (p.msgs || 0) + '</td><td class="oc">' + (p.ocs || 0) + '</td><td>' + fase + '</td></tr>';
+      // Agrupar por fase
+      const porFase = {};
+      projetos.forEach(p => {
+        const f = (p.fase || p.status || 'sem fase').toLowerCase().replace(/\s+/g, '_');
+        if (!porFase[f]) porFase[f] = [];
+        porFase[f].push(p);
+      });
+
+      // Ordenar fases: em_execucao primeiro, finalizado por último
+      const ordemFase = { em_execucao: 0, agendamento: 1, agend: 1, reparo: 2, marcas_rolo_cera: 2, finalizado: 8, concluido: 8, cancelado: 9 };
+      const fasesOrdenadas = Object.entries(porFase).sort((a, b) => {
+        const oa = ordemFase[a[0]] !== undefined ? ordemFase[a[0]] : 5;
+        const ob = ordemFase[b[0]] !== undefined ? ordemFase[b[0]] : 5;
+        return oa - ob || b[1].length - a[1].length;
+      });
+
+      // Pills resumo
+      const pills = fasesOrdenadas.map(([f, lista]) => {
+        const label = f.replace(/_/g, ' ');
+        return '<span class="drill-pill" data-fase="' + f + '">' + label + '<span class="pill-count">' + lista.length + '</span></span>';
+      }).join('');
+
+      // Grupos por fase
+      const grupos = fasesOrdenadas.map(([f, lista]) => {
+        const label = f.replace(/_/g, ' ');
+        const cssClass = f.split('_')[0];
+        const obras = lista.sort((a, b) => b.ocs - a.ocs).map(p => {
+          return '<div class="drill-obra">' +
+            '<span class="drill-obra-nome">' + (p.nome || '').substring(0, 30) + '</span>' +
+            '<span class="drill-obra-meta">' +
+              (p.consultor ? '<span>' + (p.consultor || '').split(' ')[0] + '</span>' : '') +
+              '<span>' + (p.msgs || 0) + ' msgs</span>' +
+              (p.ocs > 0 ? '<span class="oc">' + p.ocs + ' ocs</span>' : '') +
+            '</span>' +
+          '</div>';
         }).join('');
 
-      drillDiv.innerHTML = '<table class="drill-table"><tr><th>Projeto</th><th>Cidade</th><th>Msgs</th><th>Ocs</th><th>Fase</th></tr>' + rows + '</table><div class="drill-close" data-action="close-drill">fechar ✕</div>';
+        return '<div class="drill-phase-group ' + cssClass + '">' +
+          '<div class="drill-phase-head">' +
+            '<span class="drill-phase-label">' + label + '</span>' +
+            '<span class="drill-phase-count">' + lista.length + ' obra' + (lista.length > 1 ? 's' : '') + '</span>' +
+          '</div>' +
+          '<div class="drill-phase-list">' + obras + '</div>' +
+        '</div>';
+      }).join('');
+
+      drillDiv.innerHTML = '<div class="drill-panel">' +
+        '<div class="drill-summary">' + pills + '</div>' +
+        grupos +
+        '<div class="drill-close" data-action="close-drill">fechar ✕</div>' +
+      '</div>';
     }
 
     drillDiv.classList.add('open');
