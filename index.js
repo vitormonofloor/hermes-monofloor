@@ -301,7 +301,29 @@ function renderHTML(analise, dados, diff) {
       .sort((a, b) => b.count - a.count);
   });
 
-  const drilldownData = JSON.stringify({ pipelines: regiaoPipelines }).replace(/<\//g, '<\\/');
+  // KPI detail data
+  const finais = ['finalizado', 'concluido', 'cancelado'];
+  const agora = new Date();
+  const kpiData = {
+    atrasados: (dados.projetos || []).filter(p => {
+      if (!p.dataExecPrevista || finais.includes(p.status)) return false;
+      try { return new Date(p.dataExecPrevista) < agora; } catch { return false; }
+    }).map(p => ({
+      nome: p.nome, dias: Math.floor((agora - new Date(p.dataExecPrevista)) / 86400000),
+      fase: p.fase, consultor: p.consultor, msgs: p.msgs30d, ocs: p.totalOcs
+    })).sort((a, b) => b.dias - a.dias),
+    silenciosos: (dados.projetos || []).filter(p => p.msgs30d === 0 && !finais.includes(p.status))
+      .map(p => ({ nome: p.nome, fase: p.fase, consultor: p.consultor, status: p.status })),
+    criticas: (dados.projetos || []).flatMap(p =>
+      (p.ocsDetalhes || []).filter(o => o.severidade === 'critica').map(o => ({
+        titulo: o.titulo, tipo: o.tipo, projeto: p.nome, consultor: p.consultor
+      }))
+    ),
+    topMsgs: (dados.projetos || []).filter(p => p.msgs30d > 0).sort((a, b) => b.msgs30d - a.msgs30d).slice(0, 15)
+      .map(p => ({ nome: p.nome, msgs: p.msgs30d, tg: p.msgsTG, wa: p.msgsWA, consultor: p.consultor })),
+  };
+
+  const drilldownData = JSON.stringify({ pipelines: regiaoPipelines, kpi: kpiData }).replace(/<\//g, '<\\/');
   // Render SVG pipeline chart (server-side)
   function renderPipelineSVG(fases, idx) {
     const maxCount = Math.max(...fases.map(f => f.count), 1);
@@ -595,6 +617,27 @@ svg.sparkline{width:100%;height:120px;display:block}
 .minor-name{flex:1;color:#ccc;text-transform:capitalize}
 .minor-count{color:#c4a77d;font-weight:600;font-size:13px;min-width:24px;text-align:right}
 .minor-ocs{color:#ef4444;font-size:10px;min-width:50px;text-align:right}
+/* KPI clickable */
+.kpi-click{cursor:pointer;position:relative}
+.kpi-click::after{content:"i";position:absolute;top:8px;right:10px;width:14px;height:14px;font-size:9px;color:#444;font-style:italic;text-align:center;line-height:14px;border:1px solid #333;border-radius:50%;transition:all 0.2s}
+.kpi-click:hover::after{color:#c4a77d;border-color:#c4a77d}
+.kpi-click.active{border-color:#c4a77d;background:#1a1510}
+/* KPI detail panel */
+.kpi-detail{max-height:0;overflow:hidden;transition:max-height 0.4s ease-out,opacity 0.3s,margin 0.3s;opacity:0;margin-top:0}
+.kpi-detail.open{max-height:700px;opacity:1;margin-top:16px;overflow-y:auto}
+.kpi-detail-inner{background:#0a0a0a;border:1px solid #222;border-radius:12px;padding:20px 24px}
+.kpi-detail-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #1a1a1a}
+.kpi-detail-title{font-size:16px;font-weight:600;color:#c4a77d}
+.kpi-detail-close{font-size:10px;color:#888;cursor:pointer;text-transform:uppercase;letter-spacing:1px;padding:4px 8px;border-radius:4px;transition:all 0.2s}
+.kpi-detail-close:hover{color:#c4a77d;background:#1a1a1a}
+.kpi-def{font-size:12px;color:#bbb;line-height:1.6;margin-bottom:16px}
+.kpi-def code{background:#141414;padding:2px 6px;border-radius:3px;color:#c4a77d;font-size:11px}
+.kpi-detail-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:12px}
+.kpi-detail-table th{text-align:left;color:#666;font-weight:500;padding:6px 10px;border-bottom:1px solid #222;text-transform:uppercase;letter-spacing:0.5px;font-size:9px}
+.kpi-detail-table td{padding:6px 10px;border-bottom:1px solid #151515;color:#ccc}
+.kpi-detail-table tr:hover{background:#141414}
+.kpi-detail-table .red{color:#ef4444;font-weight:600}
+.kpi-detail-table .amber{color:#f59e0b}
 </style>
 </head>
 <body>
@@ -628,13 +671,14 @@ svg.sparkline{width:100%;height:120px;display:block}
     <div class="slide-eyebrow">snapshot</div>
     <h2>Os números de hoje</h2>
     <div class="kpi-grid">
-      <div class="kpi-card"><div class="kpi-val">${I.totalMsgs30d.toLocaleString('pt-BR')}</div><div class="kpi-label">Mensagens 30d</div></div>
-      <div class="kpi-card"><div class="kpi-val ${I.totalOcs > 150 ? 'red' : 'amber'}">${I.totalOcs}</div><div class="kpi-label">Ocorrências</div></div>
-      <div class="kpi-card"><div class="kpi-val red">${I.ocsCriticas}</div><div class="kpi-label">Críticas</div></div>
-      <div class="kpi-card"><div class="kpi-val ${parseFloat(I.taxaAtraso) > 20 ? 'red' : 'amber'}">${I.taxaAtraso}%</div><div class="kpi-label">Taxa atraso</div></div>
-      <div class="kpi-card"><div class="kpi-val ${parseFloat(I.taxaSilencio) > 15 ? 'amber' : ''}">${I.taxaSilencio}%</div><div class="kpi-label">Silêncio</div></div>
-      <div class="kpi-card"><div class="kpi-val">${meta.projetosAtivos}</div><div class="kpi-label">Projetos ativos</div></div>
+      <div class="kpi-card kpi-click" data-kpi="msgs"><div class="kpi-val">${I.totalMsgs30d.toLocaleString('pt-BR')}</div><div class="kpi-label">Mensagens 30d</div></div>
+      <div class="kpi-card kpi-click" data-kpi="ocs"><div class="kpi-val ${I.totalOcs > 150 ? 'red' : 'amber'}">${I.totalOcs}</div><div class="kpi-label">Ocorrências</div></div>
+      <div class="kpi-card kpi-click" data-kpi="criticas"><div class="kpi-val red">${I.ocsCriticas}</div><div class="kpi-label">Críticas</div></div>
+      <div class="kpi-card kpi-click" data-kpi="atraso"><div class="kpi-val ${parseFloat(I.taxaAtraso) > 20 ? 'red' : 'amber'}">${I.taxaAtraso}%</div><div class="kpi-label">Taxa atraso</div></div>
+      <div class="kpi-card kpi-click" data-kpi="silencio"><div class="kpi-val ${parseFloat(I.taxaSilencio) > 15 ? 'amber' : ''}">${I.taxaSilencio}%</div><div class="kpi-label">Silêncio</div></div>
+      <div class="kpi-card kpi-click" data-kpi="ativos"><div class="kpi-val">${meta.projetosAtivos}</div><div class="kpi-label">Projetos ativos</div></div>
     </div>
+    <div class="kpi-detail" id="kpi-detail"></div>
 
     <!-- Pipeline charts por região -->
     ${regionCards}
@@ -823,6 +867,105 @@ document.addEventListener('click', function(e) {
     card.querySelector('.drill-list').classList.remove('open');
     card.querySelectorAll('.data-point.active').forEach(function(p) { p.classList.remove('active'); });
     card.querySelectorAll('.x-label.active').forEach(function(l) { l.classList.remove('active'); });
+  }
+});
+
+// KPI click handlers
+var KPI_DEFS = {
+  msgs: {
+    title: 'Mensagens nos últimos 30 dias',
+    def: 'Total de mensagens trocadas nos grupos <code>Telegram</code> e <code>WhatsApp</code> de obra, capturadas pela KIRA nos últimos 30 dias corridos.',
+    formula: '<code>SUM(mensagens WHERE timestamp >= hoje - 30d)</code>',
+    render: function() {
+      var rows = DRILL.kpi.topMsgs.map(function(p) {
+        return '<tr><td>'+p.nome.substring(0,30)+'</td><td>'+p.msgs+'</td><td>'+p.tg+'</td><td>'+p.wa+'</td><td>'+(p.consultor||'').split(' ')[0]+'</td></tr>';
+      }).join('');
+      return '<table class="kpi-detail-table"><tr><th>Projeto</th><th>Total</th><th>TG</th><th>WA</th><th>Consultor</th></tr>'+rows+'</table>';
+    }
+  },
+  ocs: {
+    title: 'Ocorrências abertas',
+    def: 'Ocorrências operacionais registradas pela <code>KIRA</code> a partir da análise das mensagens. Cada uma tem <code>tipo</code> (desvio qualidade, falha comunicação, atraso) e <code>severidade</code> (crítica, alta, média, baixa). Taxa de resolução atual: <code>0%</code> — nenhuma foi marcada como resolvida.',
+    formula: '<code>COUNT(ocorrencias WHERE status = "aberta")</code>',
+    render: function() { return ''; }
+  },
+  criticas: {
+    title: 'Ocorrências críticas',
+    def: 'Ocorrências com severidade <code>critica</code>. Representam riscos altos: clientes aguardando semanas, defeitos graves, quebras prolongadas de comunicação. Devem ser tratadas imediatamente.',
+    formula: '<code>COUNT(ocorrencias WHERE severidade = "critica")</code>',
+    render: function() {
+      var rows = DRILL.kpi.criticas.map(function(o) {
+        return '<tr><td><span class="ocs-sev critica">critica</span></td><td>'+(o.titulo||'').substring(0,40)+'</td><td>'+(o.projeto||'').substring(0,25)+'</td><td>'+(o.tipo||'').replace(/_/g,' ')+'</td></tr>';
+      }).join('');
+      return rows ? '<table class="kpi-detail-table"><tr><th>Sev</th><th>Título</th><th>Projeto</th><th>Tipo</th></tr>'+rows+'</table>' : '<div style="color:#555;font-size:12px;padding:8px 0">Nenhuma ocorrência crítica.</div>';
+    }
+  },
+  atraso: {
+    title: 'Taxa de atraso',
+    def: 'Percentual de projetos ativos cuja <code>data de execução prevista</code> já passou mas ainda não foram finalizados. Meta: abaixo de <code>15%</code>. Acima de <code>20%</code> é sinal vermelho.',
+    formula: '<code>(projetos com dataExecPrevista < hoje) \u00f7 (total ativos) \u00d7 100</code>',
+    render: function() {
+      var rows = DRILL.kpi.atrasados.map(function(p) {
+        return '<tr><td>'+p.nome.substring(0,28)+'</td><td class="red">'+p.dias+'d</td><td>'+p.fase.substring(0,18)+'</td><td>'+(p.consultor||'').split(' ')[0]+'</td><td>'+p.msgs+' msgs</td><td class="'+(p.ocs>5?'red':'')+'">'+(p.ocs||0)+' ocs</td></tr>';
+      }).join('');
+      return rows ? '<table class="kpi-detail-table"><tr><th>Projeto</th><th>Atraso</th><th>Fase</th><th>Consultor</th><th>Msgs</th><th>Ocs</th></tr>'+rows+'</table>' : '';
+    }
+  },
+  silencio: {
+    title: 'Taxa de silêncio',
+    def: 'Percentual de projetos ativos <strong>sem qualquer mensagem</strong> no Telegram ou WhatsApp nos últimos 30 dias. Silêncio pode indicar: obra parada, KIRA não conectada, grupo inexistente. Meta: abaixo de <code>10%</code>.',
+    formula: '<code>(projetos com msgs30d = 0) \u00f7 (total ativos) \u00d7 100</code>',
+    render: function() {
+      var rows = DRILL.kpi.silenciosos.map(function(p) {
+        return '<tr><td>'+p.nome.substring(0,28)+'</td><td>'+p.status+'</td><td>'+p.fase.substring(0,20)+'</td><td>'+(p.consultor||'').split(' ')[0]+'</td></tr>';
+      }).join('');
+      return rows ? '<table class="kpi-detail-table"><tr><th>Projeto</th><th>Status</th><th>Fase</th><th>Consultor</th></tr>'+rows+'</table>' : '';
+    }
+  },
+  ativos: {
+    title: 'Projetos ativos',
+    def: 'Total de projetos no Pipefy com status diferente de <code>finalizado</code>, <code>concluido</code> e <code>cancelado</code>. Inclui todas as fases operacionais ativas.',
+    formula: '<code>COUNT(projetos WHERE status NOT IN [finalizado, concluido, cancelado])</code>',
+    render: function() { return ''; }
+  }
+};
+
+document.querySelectorAll('.kpi-click').forEach(function(card) {
+  card.addEventListener('click', function() {
+    var kpiId = card.dataset.kpi;
+    var detail = document.getElementById('kpi-detail');
+    var def = KPI_DEFS[kpiId];
+    if (!def) return;
+
+    // Toggle: se já está aberto com esse KPI, fecha
+    if (card.classList.contains('active')) {
+      card.classList.remove('active');
+      detail.classList.remove('open');
+      return;
+    }
+
+    // Remove active de todos
+    document.querySelectorAll('.kpi-click').forEach(function(c) { c.classList.remove('active'); });
+    card.classList.add('active');
+
+    var tableHTML = def.render();
+    detail.innerHTML = '<div class="kpi-detail-inner">' +
+      '<div class="kpi-detail-header"><div class="kpi-detail-title">' + def.title + '</div><div class="kpi-detail-close" data-action="close-kpi">\u2715</div></div>' +
+      '<div class="kpi-def">' + def.def + '</div>' +
+      '<div class="kpi-def" style="margin-bottom:0"><strong>F\u00f3rmula:</strong> ' + def.formula + '</div>' +
+      (tableHTML ? '<div style="margin-top:16px"><div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Lista detalhada</div>' + tableHTML + '</div>' : '') +
+    '</div>';
+    detail.classList.add('open');
+  });
+});
+
+// Close KPI detail
+document.addEventListener('click', function(e) {
+  var closeKpi = e.target.closest('[data-action="close-kpi"]');
+  if (closeKpi) {
+    e.stopPropagation();
+    document.getElementById('kpi-detail').classList.remove('open');
+    document.querySelectorAll('.kpi-click.active').forEach(function(c) { c.classList.remove('active'); });
   }
 });
 
