@@ -341,13 +341,31 @@ function renderHTML(analise, dados, diff) {
   }
 
   const regionCards = regiaoData.map((r, idx) => {
-    const fases = regiaoPipelines[r.nome] || [];
-    if (!fases.length) return '';
-    return '<div class="region-card" data-region="'+r.nome+'">'+
-      '<div class="region-header"><div class="region-name">'+r.nome+'</div>'+
-      '<div class="region-stats"><span><span class="val">'+r.obras+'</span>obras</span><span><span class="val">'+r.msgs.toLocaleString('pt-BR')+'</span>msgs</span><span><span class="val">'+r.ocs+'</span>ocs</span></div></div>'+
-      '<div class="chart-container">'+renderPipelineSVG(fases, idx)+'</div>'+
-      '<div class="drill-list" id="drill-'+r.nome+'"></div></div>';
+    const todasFases = regiaoPipelines[r.nome] || [];
+    if (!todasFases.length) return '';
+    const mainFases = todasFases.filter(f => f.count >= 3);
+    const minorFases = todasFases.filter(f => f.count < 3);
+    const minorTotal = minorFases.reduce((s, f) => s + f.count, 0);
+    const minorOcs = minorFases.reduce((s, f) => s + f.ocs.total, 0);
+
+    let minorHTML = '';
+    if (minorFases.length) {
+      const minorItems = minorFases.map(f =>
+        '<div class="minor-item" data-fase="' + f.fase.replace(/"/g, '&quot;') + '">' +
+        '<span class="minor-name">' + f.fase + '</span>' +
+        '<span class="minor-count">' + f.count + '</span>' +
+        '<span class="minor-ocs">' + (f.ocs.total > 0 ? f.ocs.total + ' ocs' : '') + '</span></div>'
+      ).join('');
+      minorHTML = '<div class="minor-toggle" data-region="' + r.nome + '">+ ' + minorFases.length + ' fases menores (' + minorTotal + ' obras · ' + minorOcs + ' ocs)</div>' +
+        '<div class="minor-list" id="minor-' + r.nome + '">' + minorItems + '</div>';
+    }
+
+    return '<div class="region-card" data-region="' + r.nome + '">' +
+      '<div class="region-header"><div class="region-name">' + r.nome + '</div>' +
+      '<div class="region-stats"><span><span class="val">' + r.obras + '</span>obras</span><span><span class="val">' + r.msgs.toLocaleString('pt-BR') + '</span>msgs</span><span><span class="val">' + r.ocs + '</span>ocs</span></div></div>' +
+      '<div class="chart-container">' + (mainFases.length ? renderPipelineSVG(mainFases, idx) : '<div style="color:#555;text-align:center;padding:40px">Todas as fases têm menos de 3 obras</div>') + '</div>' +
+      minorHTML +
+      '<div class="drill-list" id="drill-' + r.nome + '"></div></div>';
   }).join('');
 
   // Diff cards
@@ -564,6 +582,16 @@ svg.sparkline{width:100%;height:120px;display:block}
 .ocs-sev.critica{background:#ef444420;color:#ef4444}.ocs-sev.alta{background:#f59e0b20;color:#f59e0b}.ocs-sev.media{background:#3b82f620;color:#3b82f6}.ocs-sev.baixa{background:#22c55e20;color:#22c55e}
 .ocs-tipo{color:#888;font-size:10px;text-transform:capitalize}
 .drill-obra-meta .oc{color:#ef4444;font-weight:600}
+.ocs-titulo{color:#ccc;line-height:1.4}
+.minor-toggle{font-size:11px;color:#888;cursor:pointer;padding:10px 0 4px;border-top:1px solid #1a1a1a;margin-top:8px;transition:color 0.2s}
+.minor-toggle:hover{color:#c4a77d}
+.minor-list{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out}
+.minor-list.open{max-height:400px;padding:8px 0}
+.minor-item{display:flex;align-items:center;gap:12px;padding:4px 8px;font-size:11px;cursor:pointer;border-radius:4px;transition:background 0.15s}
+.minor-item:hover{background:#1a1a1a}
+.minor-name{flex:1;color:#ccc;text-transform:capitalize}
+.minor-count{color:#c4a77d;font-weight:600;font-size:13px;min-width:24px;text-align:right}
+.minor-ocs{color:#ef4444;font-size:10px;min-width:50px;text-align:right}
 </style>
 </head>
 <body>
@@ -793,6 +821,57 @@ document.addEventListener('click', function(e) {
     card.querySelectorAll('.data-point.active').forEach(function(p) { p.classList.remove('active'); });
     card.querySelectorAll('.x-label.active').forEach(function(l) { l.classList.remove('active'); });
   }
+});
+
+// Minor phases toggle
+document.querySelectorAll('.minor-toggle').forEach(function(toggle) {
+  toggle.addEventListener('click', function() {
+    var regionName = toggle.dataset.region;
+    var list = document.getElementById('minor-' + regionName);
+    if (list) {
+      var isOpen = list.classList.contains('open');
+      list.classList.toggle('open');
+      toggle.textContent = isOpen ? toggle.textContent.replace('- ', '+ ') : toggle.textContent.replace('+ ', '- ');
+    }
+  });
+});
+
+// Click on minor item opens drill-down for that phase
+document.querySelectorAll('.minor-item').forEach(function(item) {
+  item.addEventListener('click', function() {
+    var card = item.closest('.region-card');
+    var regionName = card.dataset.region;
+    var faseName = item.dataset.fase;
+    var drillDiv = card.querySelector('.drill-list');
+    card.querySelectorAll('.data-point').forEach(function(p) { p.classList.remove('active'); });
+    card.querySelectorAll('.x-label').forEach(function(l) { l.classList.remove('active'); });
+    var pipeline = DRILL.pipelines[regionName] || [];
+    var faseData = pipeline.find(function(f) { return f.fase === faseName; });
+    var projetos = faseData ? faseData.projetos : [];
+    if (!projetos.length) {
+      drillDiv.innerHTML = '<div class="drill-list-header"><div class="drill-list-title">'+faseName+'</div><div class="drill-list-close" data-action="close-drill">\u2715</div></div><div class="drill-list-body" style="padding:16px;color:#555;font-size:12px;text-align:center">Sem dados.</div>';
+    } else {
+      var rows = projetos.sort(function(a,b){return b.ocs-a.ocs;}).map(function(p,pi) {
+        var uid = regionName+'-minor-'+pi;
+        var hasOcs = p.ocs > 0 && p.ocorrencias && p.ocorrencias.length > 0;
+        var ocsHTML = '';
+        if (hasOcs) {
+          var items = p.ocorrencias.map(function(o) {
+            return '<div class="ocs-item"><span class="ocs-sev '+(o.sev||'media')+'">'+(o.sev||'?')+'</span><span class="ocs-tipo">'+(o.tipo||'').replace(/_/g,' ')+'</span><span class="ocs-titulo">'+(o.titulo||'\u2014')+'</span></div>';
+          }).join('');
+          ocsHTML = '<div class="ocs-expand" id="ocs-'+uid+'"><div class="ocs-list-head"><span>Ocorr\u00eancias</span><span>'+p.ocorrencias.length+' reg.</span></div>'+items+'</div>';
+        }
+        return '<div class="drill-row">'+
+          '<div class="drill-row-name">'+(p.nome||'').substring(0,30)+'</div>'+
+          '<div class="drill-row-cons">'+(p.consultor||'')+'</div>'+
+          '<div class="drill-row-msgs">'+(p.msgs||0)+' msgs</div>'+
+          '<div class="drill-row-ocs '+(hasOcs?'has-ocs':(p.ocs>0?'':'zero'))+'" '+(hasOcs?'data-toggle-ocs="ocs-'+uid+'"':'')+'>'+
+            (p.ocs>0?p.ocs+' ocs':'\u2014')+'</div></div>'+ocsHTML;
+      }).join('');
+      drillDiv.innerHTML = '<div class="drill-list-header"><div class="drill-list-title">'+faseName+' \u2014 '+projetos.length+' obra'+(projetos.length>1?'s':'')+'</div><div class="drill-list-close" data-action="close-drill">\u2715</div></div><div class="drill-list-body">'+rows+'</div>';
+    }
+    drillDiv.classList.add('open');
+  });
 });
 </script>
 
