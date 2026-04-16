@@ -275,7 +275,7 @@ function renderHTML(analise, dados, diff) {
     };
     diffHTML = `
       <section class="slide slide-diff">
-        <div class="slide-content">
+        <div class="container">
           <div class="slide-eyebrow">comparativo</div>
           <h2>O que mudou desde a última análise</h2>
           <div class="diff-grid">
@@ -298,110 +298,119 @@ function renderHTML(analise, dados, diff) {
 <title>Hermes — Análise Operacional Monofloor</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{background:#0a0a0a;color:#e0e0e0;font-family:Inter,-apple-system,sans-serif;scroll-behavior:smooth}
-body{scroll-snap-type:y mandatory}
-.slide{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:60px 40px;scroll-snap-align:start;position:relative;border-bottom:1px solid #151515}
-.slide-content{max-width:1000px;width:100%}
-.slide-eyebrow{font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#c4a77d;margin-bottom:16px;opacity:0;animation:fade 0.8s forwards}
-.slide h1{font-size:56px;font-weight:300;line-height:1.15;margin-bottom:24px;letter-spacing:-0.02em;opacity:0;animation:fade 0.8s 0.1s forwards}
+html,body{background:#0a0a0a;color:#e0e0e0;font-family:Inter,-apple-system,sans-serif;scroll-behavior:smooth;overflow-x:hidden}
+.container{max-width:1100px;margin:0 auto;padding:0 32px}
+.slide{padding:80px 0;position:relative;border-bottom:1px solid #151515;opacity:0;transform:translateY(20px);transition:opacity 0.8s ease-out, transform 0.8s ease-out}
+.slide.visible{opacity:1;transform:translateY(0)}
+.slide:first-of-type{padding-top:0;opacity:1;transform:none}
+.slide-content{width:100%}
+.slide-eyebrow{font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#c4a77d;margin-bottom:20px;display:inline-block;padding:6px 12px;background:#c4a77d15;border-radius:4px}
+.slide h1{font-size:52px;font-weight:300;line-height:1.12;margin-bottom:24px;letter-spacing:-0.02em;color:#fff}
 .slide h1 strong{color:#c4a77d;font-weight:500}
-.slide h2{font-size:32px;font-weight:400;margin-bottom:32px;color:#c4a77d;letter-spacing:-0.01em;opacity:0;animation:fade 0.8s 0.1s forwards}
-.slide p{font-size:18px;line-height:1.7;color:#d0d0d0;opacity:0;animation:fade 0.8s 0.2s forwards}
-.slide p + p{margin-top:18px}
-@keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.slide h2{font-size:36px;font-weight:400;margin-bottom:28px;color:#fff;letter-spacing:-0.015em;line-height:1.2}
+.slide h2 .accent{color:#c4a77d}
+.slide p{font-size:17px;line-height:1.75;color:#c8c8c8}
+.slide p + p{margin-top:16px}
 /* HERO */
-.hero{background:radial-gradient(ellipse at center, #1a1510 0%, #0a0a0a 70%)}
-.hero .logo{font-size:20px;letter-spacing:8px;color:#c4a77d;text-transform:uppercase;font-weight:300;margin-bottom:4px}
-.hero .subtitle{font-size:10px;letter-spacing:4px;color:#555;text-transform:uppercase;margin-bottom:40px}
-.hero h1{font-size:64px}
-.hero-meta{font-size:13px;color:#666;margin-top:40px}
-.hero-meta a{color:#c4a77d;text-decoration:none;border-bottom:1px solid #c4a77d30}
+.hero{min-height:85vh;display:flex;align-items:center;padding:60px 0 100px;background:radial-gradient(ellipse 80% 60% at 50% 30%, #1e1810 0%, #0a0a0a 60%)}
+.hero-content{width:100%}
+.hero .brand{display:flex;align-items:baseline;gap:14px;margin-bottom:40px;justify-content:center;flex-wrap:wrap}
+.hero .logo{font-size:24px;letter-spacing:10px;color:#c4a77d;text-transform:uppercase;font-weight:300}
+.hero .subtitle{font-size:10px;letter-spacing:4px;color:#555;text-transform:uppercase}
+.hero .subtitle::before{content:"·";margin-right:10px;color:#333}
+.hero h1{font-size:68px;text-align:center;max-width:900px;margin:0 auto 32px;line-height:1.08}
+.hero-meta{font-size:13px;color:#666;text-align:center;margin-top:40px;padding-top:32px;border-top:1px solid #1a1a1a;max-width:600px;margin-left:auto;margin-right:auto}
+.hero-meta a{color:#c4a77d;text-decoration:none;border-bottom:1px solid #c4a77d30;padding-bottom:1px}
 .hero-meta a:hover{border-bottom-color:#c4a77d}
 /* KPI GRID */
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:40px}
-.kpi-card{background:#141414;border:1px solid #222;border-radius:10px;padding:20px;text-align:center}
-.kpi-val{font-size:36px;font-weight:700;line-height:1;color:#c4a77d}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:32px}
+.kpi-card{background:linear-gradient(180deg, #141414 0%, #0e0e0e 100%);border:1px solid #1f1f1f;border-radius:12px;padding:24px 18px;text-align:center;transition:all 0.2s}
+.kpi-card:hover{border-color:#c4a77d40;transform:translateY(-2px)}
+.kpi-val{font-size:38px;font-weight:700;line-height:1;color:#c4a77d;font-variant-numeric:tabular-nums}
 .kpi-val.red{color:#ef4444}
 .kpi-val.amber{color:#f59e0b}
-.kpi-label{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-top:8px}
+.kpi-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:1.2px;margin-top:10px;font-weight:500}
 /* CONTEXT */
-.contexto{font-size:20px;line-height:1.7;color:#d8d8d8}
+.contexto{font-size:19px;line-height:1.75;color:#d8d8d8;max-width:780px}
 .contexto strong{color:#c4a77d;font-weight:500}
-/* SPARKLINE */
-.chart-wrap{background:#141414;border:1px solid #222;border-radius:10px;padding:24px;margin-top:32px}
-.chart-title{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
-svg{width:100%;height:100px;display:block}
-.chart-stats{display:flex;gap:32px;margin-top:16px;padding-top:16px;border-top:1px solid #222}
-.chart-stat{font-size:11px;color:#888}
-.chart-stat strong{color:#c4a77d;font-size:18px;display:block;margin-top:2px}
+.contexto p{font-size:19px;line-height:1.75}
+/* CHART */
+.chart-wrap{background:linear-gradient(180deg, #141414 0%, #0e0e0e 100%);border:1px solid #1f1f1f;border-radius:12px;padding:28px;margin-top:32px}
+.chart-title{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:18px;font-weight:500}
+svg.sparkline{width:100%;height:120px;display:block}
+.chart-stats{display:flex;gap:40px;margin-top:20px;padding-top:18px;border-top:1px solid #222;flex-wrap:wrap}
+.chart-stat{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:1px}
+.chart-stat strong{color:#c4a77d;font-size:22px;display:block;margin-top:4px;font-weight:600;letter-spacing:0;text-transform:none}
 /* INSIGHTS */
-.insights-grid{display:grid;gap:20px;margin-top:32px}
-.insight-card{background:linear-gradient(135deg, #141414 0%, #1a1510 100%);border:1px solid #2a2015;border-left:3px solid #c4a77d;border-radius:8px;padding:24px 28px}
-.insight-title{font-size:18px;color:#c4a77d;font-weight:500;margin-bottom:10px;letter-spacing:-0.01em}
-.insight-text{font-size:15px;line-height:1.6;color:#d0d0d0}
+.insights-grid{display:grid;gap:16px;margin-top:24px}
+.insight-card{background:linear-gradient(135deg, #161108 0%, #0f0c07 100%);border:1px solid #2a2015;border-left:3px solid #c4a77d;border-radius:10px;padding:24px 28px;transition:transform 0.2s}
+.insight-card:hover{transform:translateX(4px)}
+.insight-title{font-size:19px;color:#c4a77d;font-weight:500;margin-bottom:10px;letter-spacing:-0.01em}
+.insight-text{font-size:15px;line-height:1.65;color:#c8c8c8}
 /* ACTIONS */
-.acoes-grid{display:grid;gap:16px;margin-top:32px}
-.acao-card{background:#141414;border-radius:10px;padding:20px 24px;display:grid;grid-template-columns:80px 1fr;gap:20px;align-items:flex-start}
+.acoes-grid{display:grid;gap:14px;margin-top:24px}
+.acao-card{background:#121212;border-radius:10px;padding:20px 24px;display:grid;grid-template-columns:90px 1fr;gap:22px;align-items:flex-start;border:1px solid #1a1a1a;transition:all 0.2s}
+.acao-card:hover{border-color:#333}
 .acao-card.prio-alta{border-left:3px solid #ef4444}
 .acao-card.prio-media{border-left:3px solid #f59e0b}
-.acao-card.prio-baixa{border-left:3px solid #888}
-.acao-prio{font-size:10px;letter-spacing:1px;color:#888;padding:6px 10px;background:#0a0a0a;border-radius:4px;text-align:center;align-self:start}
-.acao-card.prio-alta .acao-prio{color:#ef4444}
-.acao-card.prio-media .acao-prio{color:#f59e0b}
-.acao-texto{font-size:17px;line-height:1.5;color:#e8e8e8;font-weight:500;margin-bottom:8px}
+.acao-card.prio-baixa{border-left:3px solid #555}
+.acao-prio{font-size:10px;letter-spacing:1.5px;color:#888;padding:8px 10px;background:#0a0a0a;border-radius:6px;text-align:center;font-weight:600;align-self:start}
+.acao-card.prio-alta .acao-prio{color:#ef4444;background:#ef444415}
+.acao-card.prio-media .acao-prio{color:#f59e0b;background:#f59e0b15}
+.acao-texto{font-size:17px;line-height:1.5;color:#f0f0f0;font-weight:500;margin-bottom:8px}
 .acao-ctx{font-size:13px;line-height:1.6;color:#888}
 /* TYPES CHART */
-.tipos-chart{margin-top:32px}
-.tipo-row{display:grid;grid-template-columns:200px 1fr 60px;gap:16px;align-items:center;margin-bottom:12px;font-size:13px}
-.tipo-label{color:#c0c0c0;text-transform:capitalize}
-.tipo-bar-wrap{background:#151515;border-radius:4px;height:10px;overflow:hidden}
-.tipo-bar{background:linear-gradient(90deg, #c4a77d 0%, #8a6f45 100%);height:100%;border-radius:4px}
-.tipo-num{color:#c4a77d;font-weight:600;text-align:right}
+.tipos-chart{margin-top:24px}
+.tipo-row{display:grid;grid-template-columns:200px 1fr 70px;gap:18px;align-items:center;margin-bottom:14px;font-size:13px}
+.tipo-label{color:#d0d0d0;text-transform:capitalize;font-weight:500}
+.tipo-bar-wrap{background:#151515;border-radius:6px;height:10px;overflow:hidden}
+.tipo-bar{background:linear-gradient(90deg, #c4a77d 0%, #8a6f45 100%);height:100%;border-radius:6px}
+.tipo-num{color:#c4a77d;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
 /* DIFF */
-.diff-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin-top:32px}
-.diff-card{background:#141414;border:1px solid #222;border-radius:10px;padding:20px;text-align:center}
-.diff-label{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-.diff-valor{font-size:28px;font-weight:600;color:#c4a77d;line-height:1}
-.diff-delta{font-size:14px;margin-top:8px;font-weight:500}
-/* NAV */
-.nav{position:fixed;right:20px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:12px;z-index:10}
-.nav-dot{width:10px;height:10px;border-radius:50%;background:#333;border:none;cursor:pointer;transition:all 0.2s;padding:0}
-.nav-dot.active{background:#c4a77d;transform:scale(1.3)}
-.nav-dot:hover{background:#888}
-.footer{text-align:center;padding:40px;color:#444;font-size:11px;border-top:1px solid #151515}
+.diff-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:24px}
+.diff-card{background:#141414;border:1px solid #1f1f1f;border-radius:10px;padding:22px 18px;text-align:center}
+.diff-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;font-weight:500}
+.diff-valor{font-size:30px;font-weight:600;color:#c4a77d;line-height:1;font-variant-numeric:tabular-nums}
+.diff-delta{font-size:14px;margin-top:10px;font-weight:500}
+/* SEMANA */
+.semana-box{background:linear-gradient(135deg, #0f1410 0%, #0a0c0a 100%);border-left:3px solid #22c55e;padding:28px 32px;border-radius:10px;margin-top:20px}
+.semana-box p{font-size:19px;line-height:1.7;color:#e0e0e0}
+/* BACK LINK */
+.back-link{position:fixed;top:20px;left:20px;z-index:20;background:#141414cc;backdrop-filter:blur(8px);border:1px solid #222;color:#888;padding:10px 16px;border-radius:8px;text-decoration:none;font-size:12px;transition:all 0.2s;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.back-link:hover{color:#c4a77d;border-color:#c4a77d;background:#141414}
+.footer{text-align:center;padding:40px 20px;color:#444;font-size:11px;border-top:1px solid #151515;margin-top:40px}
 .footer a{color:#c4a77d;text-decoration:none}
-/* Back link */
-.back-link{position:fixed;top:20px;left:20px;z-index:20;background:#141414;border:1px solid #222;color:#888;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:12px;transition:all 0.2s}
-.back-link:hover{color:#c4a77d;border-color:#c4a77d}
+/* MOBILE */
 @media (max-width: 768px){
-  .slide h1{font-size:36px}
-  .hero h1{font-size:40px}
-  .slide h2{font-size:24px}
-  .slide{padding:40px 20px}
-  .tipo-row{grid-template-columns:120px 1fr 40px;font-size:12px}
-  .nav{display:none}
+  .container{padding:0 20px}
+  .slide{padding:50px 0}
+  .slide h1{font-size:34px}
+  .hero{min-height:auto;padding:80px 0 60px}
+  .hero h1{font-size:38px}
+  .slide h2{font-size:26px}
+  .hero .logo{font-size:18px;letter-spacing:6px}
+  .tipo-row{grid-template-columns:130px 1fr 50px;font-size:12px;gap:12px}
+  .acao-card{grid-template-columns:1fr;gap:12px}
+  .acao-prio{display:inline-block;width:auto}
+  .kpi-val{font-size:32px}
+  .chart-stats{gap:24px}
+  .chart-stat strong{font-size:18px}
 }
+</style>
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:40px}
 </style>
 </head>
 <body>
 
-<a href="indicadores.html" class="back-link">← Painel</a>
-
-<nav class="nav">
-  <button class="nav-dot active" data-slide="0" title="Manchete"></button>
-  <button class="nav-dot" data-slide="1" title="Contexto"></button>
-  <button class="nav-dot" data-slide="2" title="Números"></button>
-  ${diff ? '<button class="nav-dot" data-slide="3" title="Comparativo"></button>' : ''}
-  <button class="nav-dot" data-slide="${diff ? 4 : 3}" title="Insights"></button>
-  <button class="nav-dot" data-slide="${diff ? 5 : 4}" title="Ações"></button>
-  <button class="nav-dot" data-slide="${diff ? 6 : 5}" title="Próxima semana"></button>
-</nav>
+<a href="indicadores.html" class="back-link">← Painel operacional</a>
 
 <!-- SLIDE 1: HERO -->
 <section class="slide hero">
-  <div class="slide-content" style="text-align:center">
-    <div class="logo">hermes</div>
-    <div class="subtitle">análise diária · monofloor</div>
+  <div class="container hero-content">
+    <div class="brand">
+      <div class="logo">hermes</div>
+      <div class="subtitle">análise diária · monofloor</div>
+    </div>
     <h1>${analise.manchete}</h1>
     <div class="hero-meta">${dataFmt} · <a href="indicadores.html">ver painel completo →</a></div>
   </div>
@@ -409,7 +418,7 @@ svg{width:100%;height:100px;display:block}
 
 <!-- SLIDE 2: CONTEXTO -->
 <section class="slide">
-  <div class="slide-content">
+  <div class="container">
     <div class="slide-eyebrow">o que está acontecendo</div>
     <h2>Contexto operacional</h2>
     <div class="contexto">${(analise.contexto || '').split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
@@ -418,7 +427,7 @@ svg{width:100%;height:100px;display:block}
 
 <!-- SLIDE 3: NÚMEROS -->
 <section class="slide">
-  <div class="slide-content">
+  <div class="container">
     <div class="slide-eyebrow">snapshot</div>
     <h2>Os números de hoje</h2>
     <div class="kpi-grid">
@@ -430,15 +439,15 @@ svg{width:100%;height:100px;display:block}
       <div class="kpi-card"><div class="kpi-val">${meta.projetosAtivos}</div><div class="kpi-label">Projetos ativos</div></div>
     </div>
     <div class="chart-wrap">
-      <div class="chart-title">Volume diário de mensagens — últimos 30 dias</div>
-      <svg viewBox="0 0 600 100" preserveAspectRatio="none">
-        <polygon points="0,100 ${sparkPoints} 600,100" fill="#c4a77d" opacity="0.1"/>
+      <div class="chart-title">Volume diário de mensagens · últimos 30 dias</div>
+      <svg class="sparkline" viewBox="0 0 600 100" preserveAspectRatio="none">
+        <polygon points="0,100 ${sparkPoints} 600,100" fill="#c4a77d" opacity="0.12"/>
         <polyline points="${sparkPoints}" fill="none" stroke="#c4a77d" stroke-width="2"/>
       </svg>
       <div class="chart-stats">
-        <div class="chart-stat">média <strong>${Math.round(I.totalMsgs30d / 30)}/dia</strong></div>
-        <div class="chart-stat">pico <strong>${maxDia}</strong></div>
-        <div class="chart-stat">total <strong>${I.totalMsgs30d.toLocaleString('pt-BR')}</strong></div>
+        <div class="chart-stat">média por dia<strong>${Math.round(I.totalMsgs30d / 30)}</strong></div>
+        <div class="chart-stat">pico<strong>${maxDia}</strong></div>
+        <div class="chart-stat">total<strong>${I.totalMsgs30d.toLocaleString('pt-BR')}</strong></div>
       </div>
     </div>
     <div class="tipos-chart">
@@ -452,28 +461,30 @@ ${diffHTML}
 
 <!-- SLIDE: INSIGHTS -->
 <section class="slide">
-  <div class="slide-content">
+  <div class="container">
     <div class="slide-eyebrow">leitura dos dados</div>
-    <h2>Insights não-óbvios</h2>
+    <h2>Insights <span class="accent">não-óbvios</span></h2>
     <div class="insights-grid">${insightsHTML}</div>
   </div>
 </section>
 
 <!-- SLIDE: AÇÕES -->
 <section class="slide">
-  <div class="slide-content">
+  <div class="container">
     <div class="slide-eyebrow">plano de ação</div>
-    <h2>O que fazer agora</h2>
+    <h2>O que fazer <span class="accent">agora</span></h2>
     <div class="acoes-grid">${acoesHTML}</div>
   </div>
 </section>
 
 <!-- SLIDE: SEMANA -->
 <section class="slide">
-  <div class="slide-content">
+  <div class="container">
     <div class="slide-eyebrow">próximos 7 dias</div>
     <h2>O que monitorar</h2>
-    <p style="font-size:19px">${analise.semana || ''}</p>
+    <div class="semana-box">
+      <p>${analise.semana || ''}</p>
+    </div>
   </div>
 </section>
 
@@ -482,22 +493,13 @@ ${diffHTML}
 </div>
 
 <script>
-const slides = document.querySelectorAll('.slide');
-const dots = document.querySelectorAll('.nav-dot');
-dots.forEach((dot, i) => {
-  dot.addEventListener('click', () => {
-    slides[i]?.scrollIntoView({ behavior: 'smooth' });
-  });
-});
+// Fade-in progressivo nos slides conforme entram na viewport
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const idx = Array.from(slides).indexOf(entry.target);
-      dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-    }
+    if (entry.isIntersecting) entry.target.classList.add('visible');
   });
-}, { threshold: 0.5 });
-slides.forEach(s => observer.observe(s));
+}, { threshold: 0.15 });
+document.querySelectorAll('.slide').forEach(s => observer.observe(s));
 </script>
 
 </body>
