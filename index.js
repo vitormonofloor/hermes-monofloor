@@ -273,8 +273,9 @@ function renderHTML(analise, dados, diff) {
     projetosPorConsultor[cons].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase });
   });
 
-  // Serialize for frontend JS
-  const drilldownData = JSON.stringify({ porRegiao: projetosPorRegiao, porConsultor: projetosPorConsultor });
+  // Serialize for frontend JS (prevent </script> breaking HTML)
+  const drilldownData = JSON.stringify({ porRegiao: projetosPorRegiao, porConsultor: projetosPorConsultor })
+    .replace(/<\//g, '<\\/');
 
   // Insights cards
   const insightsHTML = (analise.insights || []).map(i => `
@@ -666,11 +667,20 @@ document.querySelectorAll('.ibar-item').forEach(item => {
           return '<tr><td>' + (p.nome || '').substring(0, 28) + '</td><td>' + (p.cidade || '').substring(0, 15) + '</td><td>' + (p.msgs || 0) + '</td><td class="oc">' + (p.ocs || 0) + '</td><td>' + fase + '</td></tr>';
         }).join('');
 
-      drillDiv.innerHTML = '<table class="drill-table"><tr><th>Projeto</th><th>Cidade</th><th>Msgs</th><th>Ocs</th><th>Fase</th></tr>' + rows + '</table><div class="drill-close" onclick="event.stopPropagation();this.parentElement.classList.remove(\'open\')">fechar ✕</div>';
+      drillDiv.innerHTML = '<table class="drill-table"><tr><th>Projeto</th><th>Cidade</th><th>Msgs</th><th>Ocs</th><th>Fase</th></tr>' + rows + '</table><div class="drill-close" data-action="close-drill">fechar ✕</div>';
     }
 
     drillDiv.classList.add('open');
   });
+});
+
+// Event delegation para fechar drill-down
+document.addEventListener('click', (e) => {
+  const closeBtn = e.target.closest('[data-action="close-drill"]');
+  if (closeBtn) {
+    e.stopPropagation();
+    closeBtn.parentElement.classList.remove('open');
+  }
 });
 </script>
 
