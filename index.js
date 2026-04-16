@@ -518,8 +518,6 @@ svg.sparkline{width:100%;height:120px;display:block}
 .drill-close{font-size:10px;color:#888;cursor:pointer;margin-top:6px;text-align:right;padding:4px 0;text-transform:uppercase;letter-spacing:1px}
 .drill-close:hover{color:#c4a77d}
 </style>
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:40px}
-</style>
 </head>
 <body>
 
