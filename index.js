@@ -344,8 +344,8 @@ function renderHTML(analise, dados, diff) {
     const todasFases = regiaoPipelines[r.nome] || [];
     if (!todasFases.length) return '';
 
-    // Filtro inteligente: só filtra se a região tem mais de 8 fases
-    const needsFilter = todasFases.length > 8;
+    // Filtro inteligente: só filtra se a região tem 20+ obras (SP sim, RJ/CWB não)
+    const needsFilter = r.obras >= 20;
     const mainFases = needsFilter ? todasFases.filter(f => f.count >= 3) : todasFases;
     const minorFases = needsFilter ? todasFases.filter(f => f.count < 3) : [];
     const minorTotal = minorFases.reduce((s, f) => s + f.count, 0);
