@@ -229,6 +229,12 @@ function renderHTML(analise, dados, diff) {
   const tiposOrdenados = Object.entries(I.tiposOcs || {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxTipo = Math.max(...tiposOrdenados.map(t => t[1]), 1);
 
+  // Types bars
+  const tiposBars = tiposOrdenados.map(([t, c]) => {
+    const pct = (c / maxTipo * 100).toFixed(0);
+    return '<div class="tipo-row"><div class="tipo-label">' + t.replace(/_/g, ' ') + '</div><div class="tipo-bar-wrap"><div class="tipo-bar" style="width:' + pct + '%"></div></div><div class="tipo-num">' + c + '</div></div>';
+  }).join('');
+
   // Regional data
   const regiaoData = Object.entries(I.porRegiao || {})
     .sort((a, b) => b[1].obras - a[1].obras)
