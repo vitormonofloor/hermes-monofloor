@@ -278,8 +278,7 @@ function renderHTML(analise, dados, diff) {
       .sort((a, b) => b.count - a.count);
   });
 
-  const drilldownData = JSON.stringify({ pipelines: regiaoPipelines }).replace(/<\\//g, '<\\\\/');
-
+  const drilldownData = JSON.stringify({ pipelines: regiaoPipelines }).replace(/<\//g, '<\\/');
   // Render SVG pipeline chart (server-side)
   function renderPipelineSVG(fases, idx) {
     const maxCount = Math.max(...fases.map(f => f.count), 1);
