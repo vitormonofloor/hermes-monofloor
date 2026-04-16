@@ -235,6 +235,23 @@ function renderHTML(analise, dados, diff) {
     return '<div class="tipo-row"><div class="tipo-label">' + t.replace(/_/g, ' ') + '</div><div class="tipo-bar-wrap"><div class="tipo-bar" style="width:' + pct + '%"></div></div><div class="tipo-num">' + c + '</div></div>';
   }).join('');
 
+  // Insights cards
+  const insightsHTML = (analise.insights || []).map(i => `
+    <div class="insight-card">
+      <div class="insight-title">${i.titulo}</div>
+      <div class="insight-text">${i.texto}</div>
+    </div>
+  `).join('');
+
+  // Actions
+  const acoesHTML = (analise.acoes || []).map(a => `
+    <div class="acao-card prio-${a.prioridade || 'media'}">
+      <div class="acao-prio">${(a.prioridade || 'media').toUpperCase()}</div>
+      <div class="acao-texto">${a.acao}</div>
+      <div class="acao-ctx">${a.contexto}</div>
+    </div>
+  `).join('');
+
   // Regional data
   const regiaoData = Object.entries(I.porRegiao || {})
     .sort((a, b) => b[1].obras - a[1].obras)
