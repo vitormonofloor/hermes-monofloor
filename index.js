@@ -229,6 +229,53 @@ function renderHTML(analise, dados, diff) {
   const tiposOrdenados = Object.entries(I.tiposOcs || {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxTipo = Math.max(...tiposOrdenados.map(t => t[1]), 1);
 
+  // Regional data with project lists for drill-down
+  const regiaoData = Object.entries(I.porRegiao || {})
+    .sort((a, b) => b[1].obras - a[1].obras)
+    .map(([r, d]) => ({
+      nome: r,
+      obras: d.obras,
+      msgs: d.msgs,
+      ocs: d.ocs,
+      avg: d.obras ? Math.round(d.msgs / d.obras) : 0,
+    }));
+  const maxRegiaoObras = Math.max(...regiaoData.map(r => r.obras), 1);
+
+  // Consultant data
+  const consultorData = Object.entries(I.porConsultor || {})
+    .filter(([c]) => c !== 'SEM' && c !== '[]')
+    .sort((a, b) => b[1].obras - a[1].obras)
+    .map(([c, d]) => ({
+      nome: c.split(' ').slice(0, 2).join(' '),
+      nomeCompleto: c,
+      obras: d.obras,
+      msgs: d.msgs,
+      ocs: d.ocs,
+      ocsObra: d.obras ? (d.ocs / d.obras).toFixed(1) : '0',
+      pctAtraso: d.obras ? ((d.atraso / d.obras) * 100).toFixed(0) : '0',
+    }));
+  const maxConsObras = Math.max(...consultorData.map(c => c.obras), 1);
+
+  // Project list by region and consultant for JS drill-down
+  const projetosPorRegiao = {};
+  const projetosPorConsultor = {};
+  (dados.projetos || []).forEach(p => {
+    const cidade = (p.cidade || '').toLowerCase();
+    let regiao = 'OUTROS';
+    if (cidade.includes('são paulo') || cidade.includes('sao paulo')) regiao = 'SP';
+    else if (cidade.includes('rio')) regiao = 'RJ';
+    else if (cidade.includes('curitiba')) regiao = 'CWB';
+    if (!projetosPorRegiao[regiao]) projetosPorRegiao[regiao] = [];
+    projetosPorRegiao[regiao].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase, consultor: p.consultor });
+
+    const cons = (p.consultor || 'SEM').split(' ').slice(0, 2).join(' ');
+    if (!projetosPorConsultor[cons]) projetosPorConsultor[cons] = [];
+    projetosPorConsultor[cons].push({ nome: p.nome, cidade: p.cidade, msgs: p.msgs30d, ocs: p.totalOcs, fase: p.fase });
+  });
+
+  // Serialize for frontend JS
+  const drilldownData = JSON.stringify({ porRegiao: projetosPorRegiao, porConsultor: projetosPorConsultor });
+
   // Insights cards
   const insightsHTML = (analise.insights || []).map(i => `
     <div class="insight-card">
@@ -254,6 +301,51 @@ function renderHTML(analise, dados, diff) {
         <div class="tipo-label">${t.replace(/_/g, ' ')}</div>
         <div class="tipo-bar-wrap"><div class="tipo-bar" style="width:${pct}%"></div></div>
         <div class="tipo-num">${c}</div>
+      </div>
+    `;
+  }).join('');
+
+  // Interactive region bars
+  const regionBars = regiaoData.map(r => {
+    const pct = (r.obras / maxRegiaoObras * 100).toFixed(0);
+    return `
+      <div class="ibar-item" data-drill="regiao" data-key="${r.nome}">
+        <div class="ibar-head">
+          <div class="ibar-label">${r.nome}</div>
+          <div class="ibar-stats">
+            <span class="ibar-main">${r.obras}</span>
+            <span class="ibar-sub">obras</span>
+            <span class="ibar-sep">·</span>
+            <span class="ibar-detail">${r.msgs} msgs</span>
+            <span class="ibar-sep">·</span>
+            <span class="ibar-detail">${r.ocs} ocs</span>
+          </div>
+        </div>
+        <div class="ibar-bar-wrap"><div class="ibar-bar" style="width:${pct}%"></div></div>
+        <div class="ibar-drilldown" id="drill-regiao-${r.nome}"></div>
+      </div>
+    `;
+  }).join('');
+
+  // Interactive consultant bars
+  const consultorBars = consultorData.map(c => {
+    const pct = (c.obras / maxConsObras * 100).toFixed(0);
+    const atrasoColor = parseFloat(c.pctAtraso) > 30 ? '#ef4444' : parseFloat(c.pctAtraso) > 15 ? '#f59e0b' : '#888';
+    return `
+      <div class="ibar-item" data-drill="consultor" data-key="${c.nome}">
+        <div class="ibar-head">
+          <div class="ibar-label">${c.nome}</div>
+          <div class="ibar-stats">
+            <span class="ibar-main">${c.obras}</span>
+            <span class="ibar-sub">obras</span>
+            <span class="ibar-sep">·</span>
+            <span class="ibar-detail">${c.ocs} ocs (${c.ocsObra}/obra)</span>
+            <span class="ibar-sep">·</span>
+            <span class="ibar-detail" style="color:${atrasoColor}">${c.pctAtraso}% atraso</span>
+          </div>
+        </div>
+        <div class="ibar-bar-wrap"><div class="ibar-bar" style="width:${pct}%"></div></div>
+        <div class="ibar-drilldown" id="drill-consultor-${c.nome.replace(/\s/g, '_')}"></div>
       </div>
     `;
   }).join('');
@@ -395,7 +487,36 @@ svg.sparkline{width:100%;height:120px;display:block}
   .kpi-val{font-size:32px}
   .chart-stats{gap:24px}
   .chart-stat strong{font-size:18px}
+  .ibar-stats{flex-wrap:wrap;gap:4px}
 }
+/* Interactive bar charts */
+.icharts-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:32px}
+@media (max-width:900px){.icharts-grid{grid-template-columns:1fr}}
+.ichart-section{background:linear-gradient(180deg, #141414 0%, #0e0e0e 100%);border:1px solid #1f1f1f;border-radius:12px;padding:24px}
+.ichart-title{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:20px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+.ichart-title .total{color:#c4a77d;font-size:14px;font-weight:600;letter-spacing:0;text-transform:none}
+.ibar-item{margin-bottom:16px;cursor:pointer;transition:background 0.2s;padding:8px 10px;margin:-8px -10px;border-radius:8px}
+.ibar-item:hover{background:#1a1a1a}
+.ibar-item:last-child{margin-bottom:0}
+.ibar-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:12px}
+.ibar-label{font-size:15px;font-weight:600;color:#e8e8e8;letter-spacing:0.5px}
+.ibar-stats{display:flex;align-items:baseline;gap:6px;flex-wrap:nowrap}
+.ibar-main{font-size:20px;font-weight:700;color:#c4a77d;font-variant-numeric:tabular-nums}
+.ibar-sub{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px}
+.ibar-sep{color:#333;font-size:10px}
+.ibar-detail{font-size:11px;color:#888}
+.ibar-bar-wrap{background:#1a1a1a;border-radius:6px;height:8px;overflow:hidden}
+.ibar-bar{height:100%;border-radius:6px;background:linear-gradient(90deg, #c4a77d 0%, #8a6f45 100%);transition:width 0.6s cubic-bezier(0.4, 0, 0.2, 1)}
+/* Drill-down list (hidden by default) */
+.ibar-drilldown{max-height:0;overflow:hidden;transition:max-height 0.4s ease-out, opacity 0.3s;opacity:0}
+.ibar-drilldown.open{max-height:800px;opacity:1;margin-top:12px}
+.drill-table{width:100%;border-collapse:collapse;font-size:11px}
+.drill-table th{text-align:left;color:#666;font-weight:500;padding:5px 8px;border-bottom:1px solid #222;text-transform:uppercase;letter-spacing:0.5px;font-size:9px}
+.drill-table td{padding:5px 8px;border-bottom:1px solid #151515;color:#ccc}
+.drill-table tr:hover{background:#1a1a1a}
+.drill-table .oc{color:#ef4444;font-weight:600}
+.drill-close{font-size:10px;color:#888;cursor:pointer;margin-top:6px;text-align:right;padding:4px 0;text-transform:uppercase;letter-spacing:1px}
+.drill-close:hover{color:#c4a77d}
 </style>
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:40px}
 </style>
@@ -438,7 +559,20 @@ svg.sparkline{width:100%;height:120px;display:block}
       <div class="kpi-card"><div class="kpi-val ${parseFloat(I.taxaSilencio) > 15 ? 'amber' : ''}">${I.taxaSilencio}%</div><div class="kpi-label">Silêncio</div></div>
       <div class="kpi-card"><div class="kpi-val">${meta.projetosAtivos}</div><div class="kpi-label">Projetos ativos</div></div>
     </div>
-    <div class="chart-wrap">
+
+    <!-- Gráficos interativos: Região e Consultor lado a lado -->
+    <div class="icharts-grid">
+      <div class="ichart-section">
+        <div class="ichart-title">Obras por região <span class="total">${meta.projetosAtivos} projetos</span></div>
+        ${regionBars}
+      </div>
+      <div class="ichart-section">
+        <div class="ichart-title">Carga por consultor <span class="total">${consultorData.length} consultores</span></div>
+        ${consultorBars}
+      </div>
+    </div>
+
+    <div class="chart-wrap" style="margin-top:24px">
       <div class="chart-title">Volume diário de mensagens · últimos 30 dias</div>
       <svg class="sparkline" viewBox="0 0 600 100" preserveAspectRatio="none">
         <polygon points="0,100 ${sparkPoints} 600,100" fill="#c4a77d" opacity="0.12"/>
@@ -450,7 +584,7 @@ svg.sparkline{width:100%;height:120px;display:block}
         <div class="chart-stat">total<strong>${I.totalMsgs30d.toLocaleString('pt-BR')}</strong></div>
       </div>
     </div>
-    <div class="tipos-chart">
+    <div class="tipos-chart" style="margin-top:24px">
       <div class="chart-title" style="margin-bottom:16px">Tipos de ocorrência mais frequentes</div>
       ${tiposBars}
     </div>
@@ -489,17 +623,57 @@ ${diffHTML}
 </section>
 
 <div class="footer">
-  Hermes v1.0 · análise gerada em ${dataFmt} · <a href="indicadores.html">ver painel operacional →</a>
+  Hermes v1.2 · análise gerada em ${dataFmt} · <a href="indicadores.html">ver painel operacional →</a>
 </div>
 
 <script>
-// Fade-in progressivo nos slides conforme entram na viewport
+// Dados para drill-down
+const DRILL = ${drilldownData};
+
+// Fade-in progressivo
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) entry.target.classList.add('visible');
   });
 }, { threshold: 0.15 });
 document.querySelectorAll('.slide').forEach(s => observer.observe(s));
+
+// Drill-down: clicar em barra de região/consultor abre lista de obras
+document.querySelectorAll('.ibar-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const type = item.dataset.drill;
+    const key = item.dataset.key;
+    const drillDiv = item.querySelector('.ibar-drilldown');
+
+    // Se já está aberto, fecha
+    if (drillDiv.classList.contains('open')) {
+      drillDiv.classList.remove('open');
+      return;
+    }
+
+    // Fecha todos os outros do mesmo grupo
+    item.closest('.ichart-section').querySelectorAll('.ibar-drilldown.open').forEach(d => d.classList.remove('open'));
+
+    // Busca projetos
+    const source = type === 'regiao' ? DRILL.porRegiao : DRILL.porConsultor;
+    const projetos = source[key] || [];
+
+    if (!projetos.length) {
+      drillDiv.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 0">Nenhum projeto encontrado.</div>';
+    } else {
+      const rows = projetos
+        .sort((a, b) => b.msgs - a.msgs)
+        .map(p => {
+          const fase = (p.fase || '').substring(0, 18);
+          return '<tr><td>' + (p.nome || '').substring(0, 28) + '</td><td>' + (p.cidade || '').substring(0, 15) + '</td><td>' + (p.msgs || 0) + '</td><td class="oc">' + (p.ocs || 0) + '</td><td>' + fase + '</td></tr>';
+        }).join('');
+
+      drillDiv.innerHTML = '<table class="drill-table"><tr><th>Projeto</th><th>Cidade</th><th>Msgs</th><th>Ocs</th><th>Fase</th></tr>' + rows + '</table><div class="drill-close" onclick="event.stopPropagation();this.parentElement.classList.remove(\'open\')">fechar ✕</div>';
+    }
+
+    drillDiv.classList.add('open');
+  });
+});
 </script>
 
 </body>
