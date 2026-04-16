@@ -343,8 +343,11 @@ function renderHTML(analise, dados, diff) {
   const regionCards = regiaoData.map((r, idx) => {
     const todasFases = regiaoPipelines[r.nome] || [];
     if (!todasFases.length) return '';
-    const mainFases = todasFases.filter(f => f.count >= 3);
-    const minorFases = todasFases.filter(f => f.count < 3);
+
+    // Filtro inteligente: só filtra se a região tem mais de 8 fases
+    const needsFilter = todasFases.length > 8;
+    const mainFases = needsFilter ? todasFases.filter(f => f.count >= 3) : todasFases;
+    const minorFases = needsFilter ? todasFases.filter(f => f.count < 3) : [];
     const minorTotal = minorFases.reduce((s, f) => s + f.count, 0);
     const minorOcs = minorFases.reduce((s, f) => s + f.ocs.total, 0);
 
@@ -521,8 +524,8 @@ svg.sparkline{width:100%;height:120px;display:block}
 .x-label{fill:#888;font-size:10px;font-family:Inter,sans-serif;text-anchor:middle;cursor:pointer;transition:fill 0.2s}
 .x-label:hover{fill:#c4a77d}
 .x-label.active{fill:#c4a77d;font-weight:600}
-.data-point{cursor:pointer;transition:transform 0.2s}
-.data-point:hover{transform:scale(1.15)}
+.data-point{cursor:pointer;transition:transform 0.2s;transform-box:fill-box;transform-origin:center}
+.data-point:hover{transform:scale(1.12)}
 .data-point.active .bubble-ring{stroke-width:2;opacity:1}
 .data-point.active .bubble-glow{opacity:0.4}
 .bubble-bg{fill:#141414;stroke:#333;stroke-width:1.5}
